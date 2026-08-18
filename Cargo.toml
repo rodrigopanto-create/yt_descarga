@@ -1,0 +1,8 @@
+[package]
+name = "yt_descarga"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.27.2" # Framework nativo de GUI para Rust
+dirs = "5.0"
