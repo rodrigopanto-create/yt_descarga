@@ -1,3 +1,20 @@
-target/
+# Artefactos de compilación de Rust
+/target
+**/target
+
+# Binarios locales y ejecutables pesados
 bin/
 *.exe
+*.bin
+*.so
+*.dll
+*.dylib
+
+# Ignorar binarios nativos copiados en carpetas de assets/libs
+libs/
+assets/
+android/app/src/main/jniLibs/
+
+# Archivos de firma e información sensible
+*.keystore
+*.jks

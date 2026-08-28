@@ -3,6 +3,71 @@ name = "yt_descarga"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "yt_descarga_lib"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "yt_descarga"
+path = "src/main.rs"
+
+[features]
+default = ["lite"]
+full-binaries = []
+lite = []
+
 [dependencies]
-eframe = "0.27.2" # Framework nativo de GUI para Rust
 dirs = "5.0"
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+actix-web = "4"
+which = "6.0"
+# (eframe eliminada de aquí para evitar la duplicación de versiones)
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+ureq = { version = "2.9", features = ["json"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = { version = "0.27.2", default-features = false, features = ["default_fonts", "glow"] }
+winit = "0.29"
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.27.2", default-features = false, features = ["default_fonts", "glow", "android-native-activity"] }
+winit = { version = "0.29", features = ["android-native-activity"] }
+android-activity = { version = "0.5", features = ["native-activity"] }
+jni = "0.21"
+ndk-context = "0.1"
+ndk-sys = "0.5"
+
+[package.metadata.android]
+package_name = "rust.yt_descarga_lib"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.build_targets_libs]
+aarch64-linux-android = [
+    "libs/arm64-v8a/libytdlp.so",
+    "libs/arm64-v8a/libffmpeg.so"
+]
+
+[package.metadata.android.sdk]
+min_sdk_version = 21
+target_sdk_version = 33
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_NETWORK_STATE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+
+[package.metadata.android.signing.release]
+path = "release.keystore"
+keystore_password = "123456"
+key_alias = "androidkey"
