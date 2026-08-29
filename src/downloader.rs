@@ -1,10 +1,15 @@
-use std::io::{BufRead, BufReader};
-use std::process::Stdio;
 use std::sync::mpsc::Sender;
-use std::path::PathBuf;
-use crate::runner::{resolver_binarios, YtDlpCommand};
 
+// -------------------------------------------------------------
+// IMPLEMENTACIÓN PARA NATIVO (WINDOWS / LINUX / ANDROID)
+// -------------------------------------------------------------
+#[cfg(not(target_arch = "wasm32"))]
 pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+    use std::path::PathBuf;
+    use crate::runner::{resolver_binarios, YtDlpCommand};
+
     std::thread::spawn(move || {
         let mandar_log = |msg: &str| {
             let _ = tx.send(msg.to_string());
@@ -22,7 +27,7 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
             }
         };
 
-        // 2. Ruta de descarga destino (~/Downloads en PC)
+        // 2. Ruta de descarga destino
         let output_dir = if cfg!(target_os = "android") {
             PathBuf::from("/sdcard/Download")
         } else {
@@ -52,7 +57,7 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
 
         mandar_log("[+] Iniciando motor de descarga...");
 
-        // 5. Ejecución con streaming de stdout y stderr
+        // 5. Ejecución con streaming de logs
         match cmd.spawn() {
             Ok(mut child) => {
                 if let Some(stdout) = child.stdout.take() {
@@ -80,7 +85,48 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
             Err(e) => mandar_log(&format!("[!] Error al ejecutar proceso: {}", e)),
         }
 
-        // 6. Notificar a la UI que reactive los botones
+        // 6. Notificar reactivación a la UI
+        let _ = tx.send("__FIN__".to_string());
+    });
+}
+
+// -------------------------------------------------------------
+// IMPLEMENTACIÓN PARA WEBASSEMBLY (NAVEGADOR)
+// -------------------------------------------------------------
+#[cfg(target_arch = "wasm32")]
+pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
+    let mandar_log = |msg: &str| {
+        let _ = tx.send(msg.to_string());
+    };
+
+    mandar_log("[+] Enviando solicitud al servidor Actix...");
+
+    wasm_bindgen_futures::spawn_local(async move {
+        // Obtener la URL base actual del navegador (ej: http://127.0.0.1:8080 o http://192.168.1.15:8080)
+        let origin = web_sys::window()
+            .and_then(|w| w.location().origin().ok())
+            .unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
+
+        let api_url = format!("{}/api/download", origin);
+
+        let client = reqwest::Client::new();
+        let body = serde_json::json!({
+            "url": url,
+            "solo_audio": solo_audio
+        });
+
+        match client.post(&api_url).json(&body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                let _ = tx.send("[✓] Servidor inició la descarga en el backend.".to_string());
+            }
+            Ok(resp) => {
+                let _ = tx.send(format!("[!] Error del servidor: HTTP {}", resp.status()));
+            }
+            Err(e) => {
+                let _ = tx.send(format!("[!] Error de red: {}", e));
+            }
+        }
+
         let _ = tx.send("__FIN__".to_string());
     });
 }

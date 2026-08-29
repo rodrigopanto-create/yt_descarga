@@ -41,13 +41,33 @@ impl YtApp {
         self.logs.push_str(&format!("[+] Solicitando archivo {}...\n", tipo));
         self.esta_descargando = true;
 
-        ejecutar_descarga(self.url.trim().to_string(), es_mp3, self.tx.clone());
+        let url = self.url.trim().to_string();
+        let tx = self.tx.clone();
+
+        // -------------------------------------------------------------
+        // RAMA PARA WEBASSEMBLY (NAVEGADOR)
+        // -------------------------------------------------------------
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                // En la web delegamos la petición de forma asíncrona
+                ejecutar_descarga(url, es_mp3, tx);
+            });
+        }
+
+        // -------------------------------------------------------------
+        // RAMA PARA ESCRITORIO Y ANDROID (HILOS NATIVOS)
+        // -------------------------------------------------------------
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            ejecutar_descarga(url, es_mp3, tx);
+        }
     }
 }
 
 impl eframe::App for YtApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Recibir mensajes del hilo de descarga
+        // Recibir mensajes de progreso
         while let Ok(msg) = self.rx.try_recv() {
             if msg == "__FIN__" {
                 self.esta_descargando = false; // Reactiva los botones
@@ -85,6 +105,11 @@ impl eframe::App for YtApp {
                         } else {
                             self.logs.push_str("[!] No se pudo leer el portapapeles vía JNI.\n");
                         }
+                    }
+
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        self.logs.push_str("[!] Portapapeles no soportado en web por seguridad del navegador.\n");
                     }
                 }
 
