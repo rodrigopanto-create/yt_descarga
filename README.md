@@ -48,6 +48,9 @@ La instalación PWA requiere localhost o HTTPS; una dirección LAN HTTP no ofrec
   usan extensión `.exe`.
 - Android necesita su propia integración y binarios compatibles con Bionic; los ejecutables
   Linux convencionales no deben asumirse compatibles.
+  El código y los artefactos disponibles, junto con las limitaciones de empaquetado y ejecución
+  pendientes, se describen en [assets/README.md](assets/README.md). Incluir los binarios no
+  significa que el runtime Android ya esté operativo; falta validar la integración en dispositivo.
 
 ## Estructura
 
