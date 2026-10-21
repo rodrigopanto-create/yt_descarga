@@ -68,7 +68,7 @@ Define las entradas de la librería:
 
 Es el ejecutable de escritorio y también el backend local:
 
-- inicia el servidor Actix en el puerto 8080
+- inicia el servidor Actix en el puerto 8082
 - expone la ruta `/api/status`
 - expone la ruta `/api/download`
 - sirve la interfaz estática desde `./web` o `index.html`

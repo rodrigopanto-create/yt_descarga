@@ -1,94 +1,62 @@
 # YouTube Downloader Portable
 
-Aplicación multiplataforma escrita en Rust con interfaz gráfica basada en `eframe` / `egui`. Permite descargar audio y video desde YouTube usando `yt-dlp` y opcionalmente `ffmpeg`, con soporte para escritorio, Android y modo web local.
+Aplicación multiplataforma en Rust con interfaz `eframe` / `egui`, modos Lite/Full y ejecución
+de `yt-dlp` y `ffmpeg` en hilos secundarios. La interfaz muestra los logs mediante canales MPSC.
+El backend Actix permite usar la interfaz WASM desde el navegador.
 
-## ¿Qué hace?
+## GitHub Pages / PWA
 
-- Descarga archivos en formato MP3 o MP4 desde una URL de YouTube.
-- Ejecuta `yt-dlp` en segundo plano sin bloquear la interfaz.
-- Guarda los archivos en la carpeta de descargas del sistema o en `/sdcard/Download` en Android.
-- Soporta dos modos:
-  - Nativo: ventana desktop o aplicación Android.
-  - Web local: backend Actix sirve la interfaz y expone una API para descargar desde la red local.
+La interfaz se publica en https://rodrigopanto-create.github.io/yt_descarga/ mediante
+[GitHub Actions](.github/workflows/pages.yml).
 
-## Estado actual del proyecto
+**GitHub Pages solo aloja la interfaz estática. No ejecuta Rust, yt-dlp ni ffmpeg.**
+La publicación es una demostración instalable; las descargas se bloquean con un mensaje
+explícito. Para descargar, usa la aplicación nativa o el servidor local.
 
-La implementación actual está enfocada en un flujo de trabajo simple y robusto:
+El workflow compila el cliente WASM desde el código Rust, prepara un directorio que solo
+contiene recursos públicos y lo despliega con `actions/deploy-pages`. No publica el repositorio
+completo, binarios nativos, assets Android ni credenciales.
 
-- El binario de `yt-dlp` se resuelve desde `bin/` en escritorio.
-- En Android, se busca en el directorio nativo de librerías (`nativeLibraryDir`).
-- `ffmpeg` se inyecta únicamente si existe junto con `yt-dlp`.
-- La UI se actualiza con logs en tiempo real mediante canales `mpsc`.
-- El servidor web escucha en `http://127.0.0.1:8080` y también responde en la red local.
+En **Settings > Pages > Build and deployment**, seleccionar **GitHub Actions** como origen.
+Cada push a `main` despliega automáticamente; también puede iniciarse desde **Actions >
+Deploy PWA to GitHub Pages > Run workflow**.
 
-## Requisitos
+El manifiesto, iconos y service worker usan rutas relativas para funcionar tanto en
+`/yt_descarga/` como en la raíz del servidor local. Después de la primera carga correcta, los
+recursos de interfaz quedan disponibles sin conexión. Las peticiones de API no se cachean ni
+se reproducen. Para actualizar el contenido cacheado al modificar los recursos web, incrementar
+la versión de caché en `sw.js`.
 
-1. Instalar Rust y Cargo.
-2. Opcional: `wasm-pack` si quieres compilar la versión web de prueba.
-3. Preparar los binarios locales:
-   - Windows: `bin/yt-dlp.exe` y `bin/ffmpeg.exe`
-   - Linux/macOS: `bin/yt-dlp` y `bin/ffmpeg`
-4. En Android, la app espera encontrar `libytdlp.so` y opcionalmente `libffmpeg.so` dentro del directorio de librerías nativas del paquete.
+## Ejecución local
 
-## Ejecución
+Instala Rust y, para generar la interfaz web, `wasm-pack`:
 
-### Modo nativo
-
-```bash
-cargo run
-```
-
-Esto abre la ventana principal de la app y arranca el servidor web local en segundo plano.
-
-### Modo web / WASM
-
-Primero compila el cliente web:
-
-```bash
+```sh
 wasm-pack build --target web --out-dir web
-```
-
-Luego ejecuta la app nativa para servir la interfaz y la API:
-
-```bash
 cargo run
 ```
 
-La interfaz web queda disponible normalmente en `http://127.0.0.1:8080`.
+Abre http://127.0.0.1:8082. El backend debe permanecer activo para descargar; los archivos se
+guardan en el equipo donde corre el servidor. El servidor también escucha en la red local.
+La instalación PWA requiere localhost o HTTPS; una dirección LAN HTTP no ofrece el mismo soporte.
 
-## Estructura del proyecto
+## Modos y dependencias
 
-```text
-yt_descarga/
-├── bin/                  # Binarios locales esperados para desktop
-├── src/
-│   ├── app.rs            # UI principal en egui
-│   ├── downloader.rs     # Lógica de descarga para nativo y web
-│   ├── lib.rs            # Puntos de entrada para Android y WASM
-│   ├── main.rs           # Ejecutable desktop + API web local
-│   ├── platform.rs       # Integración nativa para Android
-│   └── runner/
-│       ├── ffmpeg.rs     # Inyección de ffmpeg al comando
-│       ├── finder.rs     # Resolución de rutas de yt-dlp/ffmpeg
-│       ├── mod.rs        # Exportación del módulo runner
-│       └── ytdlp.rs      # Construcción de comandos yt-dlp
-├── Cargo.toml
-├── README.md
-├── src/README.md
-├── DOCUMENTACION.md
-└── web/                  # Salida de wasm-pack
-```
+- **Lite**: compilación predeterminada; localiza los binarios del sistema o del directorio local.
+- **Full**: permite incorporar binarios preparados en `bin/` mediante `full-binaries`.
+- Prepara `yt-dlp` y `ffmpeg` compatibles con el sistema de destino. En Windows los archivos
+  usan extensión `.exe`.
+- Android necesita su propia integración y binarios compatibles con Bionic; los ejecutables
+  Linux convencionales no deben asumirse compatibles.
 
-## Consideraciones importantes
+## Estructura
 
-- El proyecto no realiza descarga automática de `yt-dlp` desde GitHub en esta versión.
-- No hay actualización automática de `yt-dlp` con `-U` en cada descarga a través del código actual.
-- Para un uso correcto, es recomendable dejar los ejecutables en `bin/` antes de compilar para escritorio.
+- `src/app.rs`: interfaz egui.
+- `src/downloader.rs`: descarga nativa y llamadas al backend desde WASM.
+- `src/main.rs`: ejecutable de escritorio y servidor Actix.
+- `src/lib.rs`: entradas de Android y WASM.
+- `src/runner/`: resolución de herramientas y construcción de comandos.
+- `index.html`, `manifest.webmanifest`, `sw.js`, `icons/`: shell PWA.
+- `web/`: salida de compilación de wasm-pack.
 
-## Siguientes mejoras sugeridas
-
-- Añadir descarga automática de dependencias faltantes.
-- Mejorar manejo de errores y mensajes por tipo de fallo.
-- Añadir validación de URL antes de enviar la descarga.
-- Mejorar el panel de logs y añadir barra de progreso real.
-- Añadir un flujo de instalación más claro para binarios nativos.
+Consulta también [DOCUMENTACION.md](DOCUMENTACION.md) y [src/README.md](src/README.md).

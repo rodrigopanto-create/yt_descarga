@@ -95,6 +95,18 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
 // -------------------------------------------------------------
 #[cfg(target_arch = "wasm32")]
 pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
+    if web_sys::window()
+        .and_then(|window| window.location().hostname().ok())
+        .is_some_and(|hostname| hostname.ends_with(".github.io"))
+    {
+        let _ = tx.send(
+            "[!] GitHub Pages solo aloja la interfaz. Para descargar, abre el servidor Rust local en http://127.0.0.1:8082."
+                .to_string(),
+        );
+        let _ = tx.send("__FIN__".to_string());
+        return;
+    }
+
     let mandar_log = |msg: &str| {
         let _ = tx.send(msg.to_string());
     };
@@ -102,10 +114,10 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
     mandar_log("[+] Enviando solicitud al servidor Actix...");
 
     wasm_bindgen_futures::spawn_local(async move {
-        // Obtener la URL base actual del navegador (ej: http://127.0.0.1:8080 o http://192.168.1.15:8080)
+        // Usar el mismo origen que sirve el cliente web.
         let origin = web_sys::window()
             .and_then(|w| w.location().origin().ok())
-            .unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
+            .unwrap_or_else(|| "http://127.0.0.1:8082".to_string());
 
         let api_url = format!("{}/api/download", origin);
 

@@ -6,7 +6,6 @@
 use std::fs::{self, File};
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::copy;
-#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
 use std::process::Command;
@@ -167,9 +166,6 @@ fn descargar_fallback_github(target_dir: &PathBuf) -> Result<BinaryPaths, String
 // CÓDIGO DUMMY PARA WEBASSEMBLY (Navegador)
 // Evita buscar ejecutables del sistema o hacer peticiones HTTP síncronas
 // =========================================================================
-#[cfg(target_arch = "wasm32")]
-use std::path::PathBuf;
-
 #[cfg(target_arch = "wasm32")]
 pub fn resolver_binarios() -> Result<BinaryPaths, String> {
     // Retornamos rutas vacías/simuladas porque el navegador no ejecuta binarios nativos directamente

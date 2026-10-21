@@ -4,8 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YT Descarga</title>
+    <meta name="theme-color" content="#202020">
+    <meta name="description" content="Descarga audio y video con yt-dlp desde tu dispositivo.">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" href="./pwa-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="./icons/icon-192.png">
     <style>
-        html, body, canvas {
+        html, body {
             margin: 0;
             padding: 0;
             width: 100%;
@@ -13,16 +21,37 @@
             overflow: hidden;
             background-color: #202020;
         }
+        body { display: flex; flex-direction: column; }
+        canvas { width: 100%; min-height: 0; flex: 1; }
+        #hosting-notice {
+            margin: 0;
+            padding: 10px;
+            background: #382b12;
+            color: #fff;
+            font: 14px sans-serif;
+        }
     </style>
 </head>
 <body>
+    <p id="hosting-notice" hidden>
+        Demostración en GitHub Pages: puedes instalar y explorar la interfaz.
+        Las descargas requieren el servidor Rust local; no se ejecutan en GitHub Pages.
+    </p>
     <canvas id="the_canvas_id"></canvas>
 
     <script type="module">
         import init from './web/yt_descarga_lib.js';
 
         async function run() {
-            // Le pasamos la ruta exacta del binario .wasm dentro de la carpeta /web
+            const pagesDemo = location.hostname.endsWith('.github.io');
+            document.getElementById('hosting-notice').hidden = !pagesDemo;
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch((error) => {
+                    console.error('No se pudo registrar el service worker:', error);
+                });
+            }
+
             await init('./web/yt_descarga_lib_bg.wasm');
         }
 

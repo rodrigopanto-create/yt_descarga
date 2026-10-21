@@ -55,7 +55,7 @@ fn iniciar_servidor_web() {
     std::thread::spawn(|| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            println!("[+] Servidor Web activo en http://127.0.0.1:8080");
+            println!("[+] Servidor Web activo en http://127.0.0.1:8082");
             let _ = HttpServer::new(|| {
                 App::new()
                     .route("/api/status", web::get().to(estado))
@@ -63,7 +63,7 @@ fn iniciar_servidor_web() {
                     .service(Files::new("/web", "./web"))
                     .service(Files::new("/", ".").index_file("index.html"))
             })
-            .bind(("0.0.0.0", 8080)) // Escucha en toda la red local para Android
+            .bind(("0.0.0.0", 8082)) // Escucha en toda la red local para Android
             .unwrap()
             .run()
             .await;
