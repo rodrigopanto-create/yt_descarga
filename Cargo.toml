@@ -18,6 +18,10 @@ full-binaries = []
 lite = []
 mpv = ["dep:libmpv-sys"]
 
+[patch.crates-io]
+android-activity = { path = "vendor/android-activity" }
+winit = { path = "vendor/winit" }
+
 [dependencies]
 dirs = "5.0"
 futures-util = "0.3"
@@ -79,11 +83,14 @@ build_targets = ["aarch64-linux-android"]
 assets = "./assets"
 
 # 2. Librerías nativas adicionales cargadas en tiempo de ejecución
-runtime_libs = "jniLibs"
+runtime_libs = "target/android-runtime-libs"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
 
 [package.metadata.android.sdk]
 target_sdk_version = 33
-min_sdk_version = 21
+min_sdk_version = 24
 
 [package.metadata.android.application]
 theme = "@android:style/Theme.DeviceDefault.NoActionBar"

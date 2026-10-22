@@ -22,6 +22,7 @@ assets/android-runtime/*
 !assets/android-runtime/python/**
 !assets/android-runtime/python/**/*.so
 !jniLibs/arm64-v8a/libpython3.15.so
+!jniLibs/arm64-v8a/libpython3.so
 !jniLibs/arm64-v8a/libavcodec.so
 !jniLibs/arm64-v8a/libavformat.so
 !jniLibs/arm64-v8a/libcrypto_python.so

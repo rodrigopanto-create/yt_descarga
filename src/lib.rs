@@ -1,3 +1,5 @@
+#[cfg(target_os = "android")]
+mod android_downloads;
 pub mod android_yt_dlp;
 pub mod app;
 pub mod downloader;

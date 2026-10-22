@@ -11,8 +11,8 @@ por el código es CPython compilado para Bionic/AArch64 más el zipapp oficial d
 - `jniLibs/arm64-v8a/libpython3.15.so` es una biblioteca compartida ELF AArch64 (`ET_DYN`) con
   `SONAME=libpython3.15.so` y entrypoint `0`. Su ubicación JNI es correcta, pero **no es el
   ejecutable PIE** `libpython3.so` que actualmente requiere el runtime. No cambiarle el nombre:
-  Android no puede lanzarla como proceso. Hace falta un ejecutable bootstrap PIE enlazado con
-  esta biblioteca, o una integración Rust/JNI que inicialice CPython dentro del proceso.
+  Android no puede lanzarla como proceso. El bootstrap PIE separado, enlazado con esta
+  biblioteca, se empaqueta como `libpython3.so`.
 - `assets/android-runtime/python/lib/python3.15/` contiene la biblioteca estándar expandida y
   módulos nativos CPython `3.15` para AArch64 Android. Esto satisface el layout de archivos que
   consume el instalador del runtime. Las dependencias de `_ssl`, `_hashlib` y `_sqlite3`
@@ -27,18 +27,98 @@ por el código es CPython compilado para Bionic/AArch64 más el zipapp oficial d
 
 El archivo `python3_pie` en la raíz es un launcher ELF PIE AArch64 con entrypoint no nulo,
 cargador `/system/bin/linker64` y dependencia de `libpython3.15.so`; su fuente está en
-`android/launcher.c`. Aún no está empaquetado como `jniLibs/arm64-v8a/libpython3.so`.
-
-Por tanto, el zipapp, los archivos expandidos de la biblioteca estándar y las tres bibliotecas
-dependientes mencionadas ya están en sus rutas. **Android aún no puede usar el runtime con el
-flujo actual**: falta empaquetar el launcher en la ruta esperada y generar el manifiesto.
-La integración también debe validarse en un dispositivo antes de considerarse operativa.
+`android/launcher.c`. Ya está copiado como `jniLibs/arm64-v8a/libpython3.so`, y
+`assets/android-runtime/manifest.json` enumera los 2711 archivos de CPython con sus hashes.
+En un dispositivo ARM64 con Android 12 se verificaron el arranque, la extracción del runtime,
+los imports esenciales, Python `3.15.0` y yt-dlp `2026.08.19`. La prueba inicial con
+`https://example.invalid/` terminó con el error DNS esperado; no era una descarga real.
 
 Las bibliotecas MPV/FFmpeg incluidas no constituyen una distribución completa: faltan
 dependencias como `libavdevice.so`, `libavfilter.so`, `libavutil.so`, `libswresample.so`,
 `libswscale.so` y `libc++_shared.so`. No se ha validado su ejecución ni la feature `mpv`.
 La firma de release se debe configurar fuera del repositorio, sin guardar contraseñas en
 `Cargo.toml`.
+
+## APK de prueba sin MPV
+
+Se requieren el SDK Android, NDK, `cargo-apk` y un JDK (`JAVA_HOME`, o el JBR de Android Studio).
+Los artefactos CPython proporcionados requieren como mínimo Android API 24.
+
+```powershell
+.\scripts\Build-AndroidDebug.ps1
+```
+
+El script prepara únicamente las cinco bibliotecas Python requeridas en
+`target/android-runtime-libs/arm64-v8a/`, que es el `runtime_libs` configurado para cargo-apk.
+No incluye MPV/FFmpeg incompletos. Regenera el manifiesto, conserva los directorios Python
+que empiezan por `_` (AAPT los omite por defecto), firma con la clave de depuración local
+y comprueba SHA-256 de todos los assets declarados y las cinco bibliotecas dentro del APK.
+El APK se encuentra en `target/debug/apk/yt_descarga_lib.apk` (o bajo `CARGO_TARGET_DIR`).
+No se instala ni se desinstala automáticamente ninguna app.
+
+El manifiesto tiene un límite de 2 MiB y 4096 archivos. Los módulos vacíos de CPython se
+aceptan únicamente cuando el manifiesto declara el SHA-256 del contenido vacío. Antes de
+activar una nueva carpeta de runtime, se validan Python, los imports nativos esenciales
+(`ssl`, `hashlib`, `sqlite3`, `ctypes`, `zlib`) y la versión de yt-dlp con timeout.
+
+### Teclado y dependencias locales
+
+`vendor/android-activity` conserva la licencia original y corrige el estado guardado nulo
+del primer arranque, además de usar el decor de la ventana para mostrar/ocultar el teclado
+(adaptación de https://github.com/rust-mobile/android-activity/pull/178).
+`vendor/winit` conserva la versión 0.29.15 y su licencia: conecta las peticiones IME y el texto
+de las teclas con Android. Se verificaron apertura del teclado, escritura y retroceso en el
+dispositivo. La composición IME compleja no está implementada por NativeActivity 0.5.
+
+### Red y Descargas públicas
+
+El APK declara `android.permission.INTERNET`. En Android 10 o posterior, yt-dlp escribe en
+un staging privado por intento; solo al terminar correctamente se copian los archivos a
+MediaStore Downloads con `RELATIVE_PATH=Download/yt_descarga` e `IS_PENDING=1`. La entrada se
+publica con `IS_PENDING=0` después de copiar, sincronizar y cerrar el descriptor. La UI solo
+anuncia éxito cuando MediaStore confirma la publicación y muestra la URI `content://`.
+No se solicitan permisos generales de almacenamiento ni se escribe directamente en
+`/sdcard/Download`.
+
+El OpenSSL de CPython no encuentra por defecto las CA de Android. En cada preparación se
+genera atómicamente `files/bin/android-ca.pem` a partir del almacén de solo lectura del sistema:
+`/apex/com.android.conscrypt/cacerts` si existe, o `/system/etc/security/cacerts`.
+El wrapper configura `SSL_CERT_FILE` y `--compat-options no-certifi` para usar estas CA con
+verificación de certificado y hostname activada. No se usa `--no-check-certificates`.
+Se incluyen solo CA del sistema, no las añadidas por el usuario. Cada certificado tiene un
+límite de 64 KiB y el bundle de 8 MiB; un fallo conserva el bundle anterior y bloquea esa
+preparación en lugar de permitir HTTPS sin verificar.
+
+Si falla la copia o publicación, se intenta eliminar la entrada pendiente y se conserva el
+staging con su ruta para recuperación. Una interrupción abrupta puede dejar staging o entradas
+pendientes; no hay recuperación automática de procesos terminados. Si una operación produce
+varios archivos, cada publicación es independiente, no una transacción del conjunto.
+Android 7-9 puede arrancar el runtime, pero guardar en Descargas por esta vía devuelve un error
+explícito: falta implementar un selector SAF o el flujo de permisos de almacenamiento legado.
+Sin un ffmpeg Android validado no se garantiza conversión a MP3 ni mezcla de pistas separadas.
+
+#### Prueba real en Android 12 / ARM64
+
+Se descargó desde la interfaz el tráiler de Sintel servido por W3C:
+`https://media.w3.org/2010/05/sintel/trailer.mp4`.
+Licencia: [CC BY 3.0, Blender Foundation](https://durian.blender.org/sharing/).
+Atribución: Blender Foundation | https://www.sintel.org/.
+
+- Archivo público: `Download/yt_descarga/trailer.mp4`, 4 372 373 bytes.
+- SHA-256 observado: `b670602fa00934ca27c4351bb0efe7ea7a07fae57284e44226025eeed7c51254`.
+  Es una huella de la prueba, no un checksum autenticado publicado por el proveedor.
+- MediaStore: `is_pending=0`; URI de la primera prueba
+  `content://media/external/downloads/1000000176` (el ID varía por dispositivo).
+- Decodificación completa de vídeo y audio con `ffmpeg -v error -i <archivo> -f null -`:
+  código de salida 0, sin errores.
+- Un intento posterior contra `https://example.invalid/` no modificó el archivo publicado
+  ni creó otra entrada pública.
+- Repetir la descarga creó `trailer (1).mp4` con otra URI y `is_pending=0`, sin sobrescribir
+  el primer archivo. El staging de los intentos correctos se eliminó.
+
+Estas pruebas verifican HTTPS, el extractor genérico, descarga y publicación; no prueban
+el extractor específico de YouTube, MP3, mezcla con ffmpeg ni otras versiones de Android.
+Las pruebas Rust son offline; la prueba real en el teléfono sí requiere Internet.
 
 ## Artefactos que debe proporcionar el paquete de release
 

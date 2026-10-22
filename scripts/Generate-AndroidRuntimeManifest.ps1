@@ -47,7 +47,7 @@ if (-not (Get-ChildItem -LiteralPath (Join-Path $pythonStdlib 'lib-dynload') -Fi
 
 $pythonAssetsPrefix = [IO.Path]::GetFullPath($pythonAssets).TrimEnd('\') + '\'
 $files = @(
-    Get-ChildItem -LiteralPath $pythonAssets -File -Recurse | ForEach-Object {
+    Get-ChildItem -LiteralPath $pythonAssets -File -Recurse | Sort-Object FullName | ForEach-Object {
         $relative = $_.FullName.Substring($pythonAssetsPrefix.Length).Replace('\', '/')
         [ordered]@{
             asset = "android-runtime/python/$relative"
@@ -59,6 +59,9 @@ $files = @(
 
 if ($files.Count -eq 0) {
     throw "No hay archivos de runtime en $pythonAssets"
+}
+if ($files.Count -gt 4096) {
+    throw "El runtime supera el límite de 4096 archivos"
 }
 
 $ffmpegHash = $null
@@ -80,7 +83,10 @@ $manifest = [ordered]@{
     ffmpeg_sha256 = $ffmpegHash
 }
 
-$json = $manifest | ConvertTo-Json -Depth 8
+$json = $manifest | ConvertTo-Json -Depth 8 -Compress
+if ([Text.Encoding]::UTF8.GetByteCount($json + [Environment]::NewLine) -gt 2 * 1024 * 1024) {
+    throw "El manifiesto supera el límite de 2 MiB del runtime"
+}
 $manifestDir = Split-Path -Parent $manifestPath
 New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null
 $tempPath = "$manifestPath.$PID.tmp"

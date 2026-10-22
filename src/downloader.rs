@@ -5,10 +5,9 @@ use std::sync::mpsc::Sender;
 // -------------------------------------------------------------
 #[cfg(not(target_arch = "wasm32"))]
 pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
-    use std::io::{BufRead, BufReader};
-    use std::path::PathBuf;
-    use std::process::Stdio;
     use crate::runner::{resolver_binarios, YtDlpCommand};
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
 
     std::thread::spawn(move || {
         let mandar_log = |msg: &str| {
@@ -28,11 +27,17 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
         };
 
         // 2. Ruta de descarga destino
-        let output_dir = if cfg!(target_os = "android") {
-            PathBuf::from("/sdcard/Download")
-        } else {
-            dirs::download_dir().unwrap_or_else(|| PathBuf::from("."))
+        #[cfg(target_os = "android")]
+        let output_dir = match crate::android_downloads::prepare_download() {
+            Ok(path) => path,
+            Err(error) => {
+                mandar_log(&format!("[!] No se pudo preparar Descargas: {error}"));
+                let _ = tx.send("__FIN__".to_string());
+                return;
+            }
         };
+        #[cfg(not(target_os = "android"))]
+        let output_dir = dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         let output_str = output_dir.to_string_lossy().to_string();
 
         // 3. Preparar comando (Soporte nativo para el python3_pie en Android o runner clásico en Escritorio)
@@ -67,8 +72,26 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
 
                 match child.wait() {
                     Ok(status) if status.success() => {
-                        mandar_log("--------------------------------------------------");
-                        mandar_log(&format!("¡ÉXITO! El archivo está guardado en: {}", output_str));
+                        #[cfg(target_os = "android")]
+                        match crate::android_downloads::publish_download(&output_dir) {
+                            Ok(uris) => {
+                                mandar_log("¡ÉXITO! Guardado en Descargas/yt_descarga:");
+                                for uri in uris {
+                                    mandar_log(&uri);
+                                }
+                            }
+                            Err(error) => {
+                                mandar_log(&format!("[!] No se pudo publicar la descarga: {error}"))
+                            }
+                        }
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            mandar_log("--------------------------------------------------");
+                            mandar_log(&format!(
+                                "¡ÉXITO! El archivo está guardado en: {}",
+                                output_str
+                            ));
+                        }
                     }
                     _ => mandar_log("[!] El proceso finalizó con errores."),
                 }
@@ -76,6 +99,13 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
             Err(e) => mandar_log(&format!("[!] Error al ejecutar proceso: {}", e)),
         }
 
+        #[cfg(target_os = "android")]
+        if output_dir.exists() {
+            mandar_log(&format!(
+                "[!] Staging conservado para diagnóstico o recuperación: {}",
+                output_dir.display()
+            ));
+        }
         // 5. Notificar reactivación a la UI
         let _ = tx.send("__FIN__".to_string());
     });

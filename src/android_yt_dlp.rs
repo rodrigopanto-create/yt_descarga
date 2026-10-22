@@ -25,9 +25,9 @@ const YTDLP_ASSET: &str = "android-runtime/yt-dlp.pyz";
 const PYTHON_EXECUTABLE: &str = "libpython3.so";
 #[cfg(target_os = "android")]
 const YTDLP_WRAPPER: &str = "yt-dlp";
-#[cfg(target_os = "android")]
-const MAX_MANIFEST_BYTES: usize = 256 * 1024;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
+const MAX_MANIFEST_BYTES: usize = 2 * 1024 * 1024;
+#[cfg(any(target_os = "android", test))]
 const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 #[cfg(target_os = "android")]
 const MAX_RUNTIME_BYTES: u64 = 1024 * 1024 * 1024;
@@ -108,7 +108,7 @@ pub fn app_files_dir() -> PathBuf {
 }
 
 #[cfg(target_os = "android")]
-fn files_dir() -> Result<PathBuf, String> {
+pub(crate) fn files_dir() -> Result<PathBuf, String> {
     let ctx = ndk_context::android_context();
     if ctx.context().is_null() {
         return Err("El contexto Android no está disponible".to_string());
@@ -198,6 +198,19 @@ pub(crate) fn prepare_android_tools() -> Result<AndroidTools, String> {
     match fs::symlink_metadata(&runtime_dir) {
         Ok(metadata) if metadata.file_type().is_dir() => {
             validate_installed_runtime(&runtime_dir, &manifest)?;
+            verify_python(
+                &python,
+                &runtime_dir.join("python"),
+                &native_dir,
+                &manifest.python_version,
+            )?;
+            verify_ytdlp(
+                &python,
+                &runtime_dir.join("python"),
+                &native_dir,
+                &runtime_dir.join("yt-dlp.pyz"),
+                &manifest.ytdlp_version,
+            )?;
         }
         Ok(_) => {
             return Err(format!(
@@ -211,6 +224,8 @@ pub(crate) fn prepare_android_tools() -> Result<AndroidTools, String> {
                 &runtime_root,
                 &runtime_dir,
                 &manifest,
+                &python,
+                &native_dir,
             )?;
         }
         Err(error) => {
@@ -223,20 +238,25 @@ pub(crate) fn prepare_android_tools() -> Result<AndroidTools, String> {
 
     let python_home = runtime_dir.join("python");
     let ytdlp_zipapp = runtime_dir.join("yt-dlp.pyz");
-    verify_python(&python, &python_home, &native_dir, &manifest.python_version)?;
-    verify_ytdlp(
-        &python,
-        &python_home,
-        &native_dir,
-        &ytdlp_zipapp,
-        &manifest.ytdlp_version,
-    )?;
-
     let wrapper_dir = app_files.join("bin");
     fs::create_dir_all(&wrapper_dir)
         .map_err(|e| format!("No se pudo crear {}: {e}", wrapper_dir.display()))?;
+    let ca_directory = match fs::metadata("/apex/com.android.conscrypt/cacerts") {
+        Ok(metadata) if metadata.is_dir() => Path::new("/apex/com.android.conscrypt/cacerts"),
+        Ok(_) => return Err("El almacén de CA Android no es un directorio".into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Path::new("/system/etc/security/cacerts")
+        }
+        Err(error) => {
+            return Err(format!(
+                "No se pudo consultar el almacén CA Android: {error}"
+            ))
+        }
+    };
+    let ca_bundle = wrapper_dir.join("android-ca.pem");
+    write_ca_bundle(ca_directory, &ca_bundle)?;
     let wrapper = wrapper_dir.join(YTDLP_WRAPPER);
-    install_wrapper(&wrapper, &python, &python_home, &ytdlp_zipapp)?;
+    install_wrapper(&wrapper, &python, &python_home, &ytdlp_zipapp, &ca_bundle)?;
 
     let ffmpeg = manifest.ffmpeg_sha256.as_deref().and_then(|hash| {
         match validate_ffmpeg(&native_dir.join("libffmpeg.so"), hash) {
@@ -338,9 +358,13 @@ fn validate_manifest(m: &RuntimeManifest) -> Result<(), String> {
 
     let minor = m.python_version.split('.').nth(1).unwrap_or_default();
     let stdlib_zip = format!("lib/python3.{minor}/python3{minor}.zip");
-    if !rutas.contains(&stdlib_zip) {
+    let expanded = [
+        format!("lib/python3.{minor}/os.py"),
+        format!("lib/python3.{minor}/encodings/__init__.py"),
+    ];
+    if !rutas.contains(&stdlib_zip) && !expanded.iter().all(|path| rutas.contains(path)) {
         return Err(format!(
-            "Falta la biblioteca estándar requerida por CPython: {stdlib_zip}"
+            "Falta la biblioteca estándar de CPython: {stdlib_zip} o los módulos expandidos os.py y encodings/__init__.py"
         ));
     }
     Ok(())
@@ -389,6 +413,8 @@ fn install_runtime(
     runtime_root: &Path,
     runtime_dir: &Path,
     manifest: &RuntimeManifest,
+    python: &Path,
+    native_dir: &Path,
 ) -> Result<(), String> {
     fs::create_dir_all(runtime_root)
         .map_err(|e| format!("No se pudo crear {}: {e}", runtime_root.display()))?;
@@ -431,6 +457,14 @@ fn install_runtime(
             "El runtime Android excede el límite de {MAX_RUNTIME_BYTES} bytes"
         ));
     }
+    verify_python(python, &python_home, native_dir, &manifest.python_version)?;
+    verify_ytdlp(
+        python,
+        &python_home,
+        native_dir,
+        &ytdlp,
+        &manifest.ytdlp_version,
+    )?;
     sync_directory(&staging);
 
     // La ruta final está versionada. No se borra una instalación previa: una colisión requiere
@@ -515,14 +549,8 @@ fn copy_android_asset_verified(
         .open(&name)
         .ok_or_else(|| format!("Falta el asset requerido: {asset_path}"))?;
     let declared = asset.length() as u64;
-    if declared == 0 {
-        return Err(format!("El asset está vacío: {asset_path}"));
-    }
-    if declared > MAX_FILE_BYTES {
-        return Err(format!(
-            "El asset {asset_path} supera el límite de {MAX_FILE_BYTES} bytes"
-        ));
-    }
+    validate_file_size(declared, expected_hash)
+        .map_err(|error| format!("Asset {asset_path}: {error}"))?;
 
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -591,13 +619,8 @@ fn verify_file_hash(path: &Path, expected: &str) -> Result<(), String> {
     if !metadata.file_type().is_file() {
         return Err(format!("{} no es un archivo regular", path.display()));
     }
-    if metadata.len() == 0 || metadata.len() > MAX_FILE_BYTES {
-        return Err(format!(
-            "{} tiene un tamaño inválido: {} bytes",
-            path.display(),
-            metadata.len()
-        ));
-    }
+    validate_file_size(metadata.len(), expected)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
     let file = File::open(path).map_err(|e| format!("No se pudo abrir {}: {e}", path.display()))?;
     let actual = sha256_reader(file)?;
     if !actual.eq_ignore_ascii_case(expected) {
@@ -605,6 +628,19 @@ fn verify_file_hash(path: &Path, expected: &str) -> Result<(), String> {
             "SHA-256 incorrecto para {}: esperado {expected}, obtenido {actual}",
             path.display()
         ));
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "android", test))]
+fn validate_file_size(size: u64, expected_hash: &str) -> Result<(), String> {
+    // CPython contiene __init__.py vacíos: solo se aceptan si el hash los declara vacíos.
+    const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    if size > MAX_FILE_BYTES {
+        return Err(format!("El archivo supera {MAX_FILE_BYTES} bytes"));
+    }
+    if size == 0 && !expected_hash.eq_ignore_ascii_case(EMPTY_SHA256) {
+        return Err("Archivo vacío inesperado".to_string());
     }
     Ok(())
 }
@@ -804,7 +840,7 @@ fn verify_python(
         &[
             "-S",
             "-c",
-            "import platform; print(platform.python_implementation())",
+            "import platform, ssl, hashlib, sqlite3, ctypes, zlib; print(platform.python_implementation())",
         ],
     )?;
     if implementation.trim() != "CPython" {
@@ -930,11 +966,13 @@ fn install_wrapper(
     python: &Path,
     python_home: &Path,
     zipapp: &Path,
+    ca_bundle: &Path,
 ) -> Result<(), String> {
     let contenido = format!(
-        "#!/system/bin/sh\nPYTHONHOME={}\nPYTHONNOUSERSITE=1\nPYTHONDONTWRITEBYTECODE=1\nLD_LIBRARY_PATH={}\nexport PYTHONHOME PYTHONNOUSERSITE PYTHONDONTWRITEBYTECODE LD_LIBRARY_PATH\nexec {} -S {} \"$@\"\n",
+        "#!/system/bin/sh\nPYTHONHOME={}\nPYTHONNOUSERSITE=1\nPYTHONDONTWRITEBYTECODE=1\nLD_LIBRARY_PATH={}\nSSL_CERT_FILE={}\nexport PYTHONHOME PYTHONNOUSERSITE PYTHONDONTWRITEBYTECODE LD_LIBRARY_PATH SSL_CERT_FILE\nexec {} -S {} --compat-options no-certifi \"$@\"\n",
         shell_quote(&python_home.to_string_lossy()),
         shell_quote(&python.parent().unwrap_or_else(|| Path::new("/system/lib64")).to_string_lossy()),
+        shell_quote(&ca_bundle.to_string_lossy()),
         shell_quote(&python.to_string_lossy()),
         shell_quote(&zipapp.to_string_lossy())
     );
@@ -970,6 +1008,85 @@ fn install_wrapper(
         ));
     }
     Ok(())
+}
+
+#[cfg(any(target_os = "android", test))]
+fn write_ca_bundle(source: &Path, destination: &Path) -> Result<(), String> {
+    use std::fs::{self, File, OpenOptions};
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_BUNDLE: AtomicU64 = AtomicU64::new(0);
+    let parent = destination
+        .parent()
+        .ok_or("El bundle CA no tiene directorio padre")?;
+    let temp = parent.join(format!(
+        ".android-ca-{}-{}.tmp",
+        std::process::id(),
+        NEXT_BUNDLE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|e| format!("No se pudo crear bundle CA temporal: {e}"))?;
+    let result = (|| -> Result<(), String> {
+        let mut paths = Vec::new();
+        for entry in fs::read_dir(source)
+            .map_err(|e| format!("No se pudo leer el almacén CA Android: {e}"))?
+        {
+            let entry = entry.map_err(|e| format!("No se pudo leer una entrada CA: {e}"))?;
+            if !entry.file_type().map_err(|e| e.to_string())?.is_file() {
+                return Err(format!("Entrada CA no regular: {}", entry.path().display()));
+            }
+            paths.push(entry.path());
+            if paths.len() > 4096 {
+                return Err("El almacén CA supera 4096 certificados".into());
+            }
+        }
+        if paths.is_empty() {
+            return Err("El almacén CA Android está vacío".into());
+        }
+        paths.sort();
+        let mut total = 0;
+        for path in paths {
+            let mut bytes = Vec::new();
+            File::open(&path)
+                .and_then(|file| file.take(65537).read_to_end(&mut bytes))
+                .map_err(|e| format!("No se pudo leer CA {}: {e}", path.display()))?;
+            if bytes.len() > 65536
+                || !bytes.starts_with(b"-----BEGIN CERTIFICATE-----")
+                || !bytes.windows(25).any(|w| w == b"-----END CERTIFICATE-----")
+            {
+                return Err(format!(
+                    "Certificado CA vacío, excesivo o no PEM: {}",
+                    path.display()
+                ));
+            }
+            total += bytes.len();
+            if total > 8 * 1024 * 1024 {
+                return Err("El bundle CA supera 8 MiB".into());
+            }
+            output
+                .write_all(&bytes)
+                .and_then(|_| output.write_all(b"\n"))
+                .map_err(|e| format!("No se pudo escribir el bundle CA: {e}"))?;
+        }
+        output
+            .flush()
+            .and_then(|_| output.sync_all())
+            .map_err(|e| format!("No se pudo sincronizar bundle CA: {e}"))?;
+        Ok(())
+    })();
+    drop(output);
+    let result = result.and_then(|()| {
+        fs::rename(&temp, destination).map_err(|e| format!("No se pudo activar bundle CA: {e}"))
+    });
+    if result.is_err() {
+        if let Err(error) = fs::remove_file(&temp) {
+            log::error!("No se pudo limpiar bundle CA temporal: {error}");
+        }
+    }
+    result
 }
 
 #[cfg(any(target_os = "android", test))]
@@ -1049,6 +1166,40 @@ pub fn resolve_stream_url_async(_video_url: &str) -> mpsc::Receiver<Result<Strin
 mod tests {
     use super::*;
 
+    #[test]
+    fn bundle_ca_valida_limites_y_preserva_anterior() {
+        use std::fs;
+        let root = std::env::temp_dir().join(format!(
+            "yt-ca-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let source = root.join("certs");
+        fs::create_dir_all(&source).unwrap();
+        let destination = root.join("ca.pem");
+        fs::write(&destination, b"previous").unwrap();
+        assert!(write_ca_bundle(&source, &destination).is_err());
+        fs::write(source.join("a.0"), b"").unwrap();
+        assert!(write_ca_bundle(&source, &destination).is_err());
+        fs::write(source.join("a.0"), vec![b'a'; 65537]).unwrap();
+        assert!(write_ca_bundle(&source, &destination).is_err());
+        assert_eq!(fs::read(&destination).unwrap(), b"previous");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        fs::remove_file(&destination).unwrap();
+        let pem = b"-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n";
+        fs::write(source.join("a.0"), pem).unwrap();
+        fs::write(source.join("b.0"), pem).unwrap();
+        write_ca_bundle(&source, &destination).unwrap();
+        assert_eq!(
+            fs::read(&destination).unwrap(),
+            [pem.as_slice(), b"\n", pem.as_slice(), b"\n"].concat()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn manifest_ok() -> RuntimeManifest {
         RuntimeManifest {
             schema_version: 1,
@@ -1110,6 +1261,71 @@ mod tests {
         );
         let manifest: RuntimeManifest = serde_json::from_str(&json).expect("manifest JSON");
         assert!(validate_manifest(&manifest).is_ok());
+    }
+
+    #[test]
+    fn manifiesto_expandido_requiere_os_y_encodings() {
+        let mut manifest = manifest_ok();
+        manifest.python_files = ["os.py", "encodings/__init__.py"]
+            .iter()
+            .map(|module| RuntimeFile {
+                asset: format!("android-runtime/python/lib/python3.12/{module}"),
+                install_path: format!("lib/python3.12/{module}"),
+                sha256: "c".repeat(64),
+            })
+            .collect();
+        assert!(validate_manifest(&manifest).is_ok());
+        manifest.python_files.pop();
+        assert!(validate_manifest(&manifest).is_err());
+    }
+
+    #[test]
+    fn archivos_vacios_solo_si_el_hash_lo_declara() {
+        assert!(validate_file_size(
+            0,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        )
+        .is_ok());
+        assert!(validate_file_size(0, &"a".repeat(64)).is_err());
+        assert!(validate_file_size(MAX_FILE_BYTES, &"a".repeat(64)).is_ok());
+        assert!(validate_file_size(MAX_FILE_BYTES + 1, &"a".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn manifiesto_empaquetado_cumple_el_contrato() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let bytes = std::fs::read(root.join("assets/android-runtime/manifest.json"))
+            .expect("manifiesto Android generado");
+        assert!(bytes.len() <= MAX_MANIFEST_BYTES);
+        let manifest: RuntimeManifest = serde_json::from_slice(&bytes).expect("JSON válido");
+        validate_manifest(&manifest).expect("layout válido");
+        let mut paths = vec![
+            (
+                root.join("jniLibs/arm64-v8a/libpython3.so"),
+                manifest.python_executable_sha256,
+            ),
+            (
+                root.join("assets/android-runtime/yt-dlp.pyz"),
+                manifest.ytdlp_sha256,
+            ),
+        ];
+        paths.extend(
+            manifest
+                .python_files
+                .into_iter()
+                .map(|file| (root.join("assets").join(file.asset), file.sha256)),
+        );
+        for (path, expected) in paths {
+            let bytes = std::fs::read(&path).expect("artefacto empaquetado");
+            validate_file_size(bytes.len() as u64, &expected).expect("tamaño válido");
+            let digest = ring::digest::digest(&ring::digest::SHA256, &bytes);
+            let actual: String = digest
+                .as_ref()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            assert_eq!(actual, expected, "{}", path.display());
+        }
     }
 
     #[test]
