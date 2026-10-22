@@ -1,0 +1,33 @@
+name: Build Android FFmpeg
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [android/runtime-binaries]
+    paths:
+      - .github/workflows/android-ffmpeg.yml
+      - scripts/build-android-ffmpeg.sh
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build verified sources with Android NDK
+        env:
+          NDK_VERSION: 27.2.12479018
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          bash scripts/build-android-ffmpeg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-ffmpeg-arm64-api24
+          path: target/android-ffmpeg/dist/
+          if-no-files-found: error
+          retention-days: 30
