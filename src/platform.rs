@@ -21,33 +21,60 @@ pub fn obtener_portapapeles_jni() -> Option<String> {
         .l()
         .ok()?;
 
-    if clipboard_mgr.is_null() { return None; }
+    if clipboard_mgr.is_null() {
+        return None;
+    }
 
     let primary_clip = env
-        .call_method(&clipboard_mgr, "getPrimaryClip", "()Landroid/content/ClipData;", &[])
+        .call_method(
+            &clipboard_mgr,
+            "getPrimaryClip",
+            "()Landroid/content/ClipData;",
+            &[],
+        )
         .ok()?
         .l()
         .ok()?;
 
-    if primary_clip.is_null() { return None; }
+    if primary_clip.is_null() {
+        return None;
+    }
 
     let item = env
-        .call_method(&primary_clip, "getItemAt", "(I)Landroid/content/ClipData$Item;", &[0.into()])
+        .call_method(
+            &primary_clip,
+            "getItemAt",
+            "(I)Landroid/content/ClipData$Item;",
+            &[0.into()],
+        )
         .ok()?
         .l()
         .ok()?;
 
-    if item.is_null() { return None; }
+    if item.is_null() {
+        return None;
+    }
 
     let char_seq = env
-        .call_method(&item, "coerceToText", "(Landroid/content/Context;)Ljava/lang/CharSequence;", &[(&activity).into()])
+        .call_method(
+            &item,
+            "coerceToText",
+            "(Landroid/content/Context;)Ljava/lang/CharSequence;",
+            &[(&activity).into()],
+        )
         .ok()?
         .l()
         .ok()?;
 
-    if char_seq.is_null() { return None; }
+    if char_seq.is_null() {
+        return None;
+    }
 
-    let string_obj = env.call_method(&char_seq, "toString", "()Ljava/lang/String;", &[]).ok()?.l().ok()?;
+    let string_obj = env
+        .call_method(&char_seq, "toString", "()Ljava/lang/String;", &[])
+        .ok()?
+        .l()
+        .ok()?;
     let rust_str: String = env.get_string((&string_obj).into()).ok()?.into();
     Some(rust_str)
 }

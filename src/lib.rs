@@ -29,14 +29,14 @@ fn android_main(app: AndroidApp) {
     if let Err(error) = android_yt_dlp::initialize_android_assets(app.clone()) {
         log::error!("No se pudo inicializar AssetManager: {error}");
     }
-    
+
     log::info!("Iniciando aplicación en Android...");
 
     let mut options = eframe::NativeOptions::default();
-    
+
     // Configuración explícita de renderizado para evitar pánico en GPUs Mali/PowerVR
     options.renderer = eframe::Renderer::Glow;
-    
+
     options.event_loop_builder = Some(Box::new(move |builder| {
         use winit::platform::android::EventLoopBuilderExtAndroid;
         builder.with_android_app(app);

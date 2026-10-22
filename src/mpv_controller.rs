@@ -35,18 +35,9 @@ impl MpvController {
 
         let command = CString::new("loadfile").map_err(|e| format!("CString cmd: {e}"))?;
         let url = CString::new(stream_url).map_err(|e| format!("CString url: {e}"))?;
-        let mut argv = [
-            command.as_ptr(),
-            url.as_ptr(),
-            std::ptr::null(),
-        ];
+        let mut argv = [command.as_ptr(), url.as_ptr(), std::ptr::null()];
 
-        let result = unsafe {
-            libmpv_sys::mpv_command(
-                self.handle.cast(),
-                argv.as_mut_ptr(),
-            )
-        };
+        let result = unsafe { libmpv_sys::mpv_command(self.handle.cast(), argv.as_mut_ptr()) };
 
         if result < 0 {
             return Err(format!("libmpv rechazó loadfile: {result}"));
@@ -76,12 +67,7 @@ impl MpvController {
     fn command(&self, name: &str) -> Result<(), String> {
         let command = CString::new(name).map_err(|e| format!("CString cmd: {e}"))?;
         let mut argv = [command.as_ptr(), std::ptr::null()];
-        let result = unsafe {
-            libmpv_sys::mpv_command(
-                self.handle.cast(),
-                argv.as_mut_ptr(),
-            )
-        };
+        let result = unsafe { libmpv_sys::mpv_command(self.handle.cast(), argv.as_mut_ptr()) };
 
         if result < 0 {
             return Err(format!("libmpv rechazó {name}: {result}"));
@@ -98,9 +84,8 @@ impl MpvController {
 fn set_option(handle: *mut std::ffi::c_void, name: &str, value: &str) -> Result<(), String> {
     let name = CString::new(name).map_err(|e| format!("CString option: {e}"))?;
     let value = CString::new(value).map_err(|e| format!("CString value: {e}"))?;
-    let result = unsafe {
-        libmpv_sys::mpv_set_option_string(handle.cast(), name.as_ptr(), value.as_ptr())
-    };
+    let result =
+        unsafe { libmpv_sys::mpv_set_option_string(handle.cast(), name.as_ptr(), value.as_ptr()) };
 
     if result < 0 {
         return Err(format!("No se pudo configurar MPV {name:?}: {result}"));

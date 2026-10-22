@@ -23,7 +23,7 @@ async fn estado() -> impl Responder {
 #[cfg(not(target_arch = "wasm32"))]
 async fn procesar_descarga_web(payload: web::Json<DownloadPayload>) -> impl Responder {
     let (tx, rx) = std::sync::mpsc::channel::<String>();
-    
+
     // Hilo dedicado a escuchar y mostrar en la consola del backend lo que yt-dlp reporte
     std::thread::spawn(move || {
         while let Ok(msg) = rx.recv() {
@@ -36,11 +36,7 @@ async fn procesar_descarga_web(payload: web::Json<DownloadPayload>) -> impl Resp
     });
 
     // Ejecuta la descarga en el backend pasando el canal activo
-    yt_descarga_lib::downloader::ejecutar_descarga(
-        payload.url.clone(),
-        payload.solo_audio,
-        tx,
-    );
+    yt_descarga_lib::downloader::ejecutar_descarga(payload.url.clone(), payload.solo_audio, tx);
 
     println!("[BACKEND] Solicitud recibida para: {}", payload.url);
 

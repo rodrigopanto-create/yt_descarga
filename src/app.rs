@@ -1,11 +1,11 @@
+use crate::downloader::ejecutar_descarga;
 use eframe::egui;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use crate::downloader::ejecutar_descarga;
 
 #[cfg(target_os = "android")]
-use crate::platform::obtener_portapapeles_jni;
-#[cfg(target_os = "android")]
 use crate::android_yt_dlp::content_rect_top_px;
+#[cfg(target_os = "android")]
+use crate::platform::obtener_portapapeles_jni;
 
 pub struct YtApp {
     url: String,
@@ -40,7 +40,8 @@ impl YtApp {
         }
 
         let tipo = if es_mp3 { "MP3" } else { "MP4" };
-        self.logs.push_str(&format!("[+] Solicitando archivo {}...\n", tipo));
+        self.logs
+            .push_str(&format!("[+] Solicitando archivo {}...\n", tipo));
         self.esta_descargando = true;
 
         let url = self.url.trim().to_string();
@@ -101,11 +102,15 @@ impl eframe::App for YtApp {
             ui.add_space(5.0);
 
             ui.horizontal(|ui| {
-                if ui.add_enabled(!self.esta_descargando, egui::Button::new("📋 PEGAR")).clicked() {
+                if ui
+                    .add_enabled(!self.esta_descargando, egui::Button::new("📋 PEGAR"))
+                    .clicked()
+                {
                     // 1. ESCRITORIO NATIVO
                     #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
                     {
-                        self.logs.push_str("[!] Usa Ctrl+V directamente en la casilla de URL.\n");
+                        self.logs
+                            .push_str("[!] Usa Ctrl+V directamente en la casilla de URL.\n");
                     }
 
                     // 2. ANDROID NATIVO (JNI)
@@ -114,27 +119,37 @@ impl eframe::App for YtApp {
                         if let Some(txt) = obtener_portapapeles_jni() {
                             if !txt.is_empty() {
                                 self.url = txt;
-                                self.logs.push_str("[✓] Enlace pegado desde el portapapeles.\n");
+                                self.logs
+                                    .push_str("[✓] Enlace pegado desde el portapapeles.\n");
                             } else {
                                 self.logs.push_str("[!] El portapapeles está vacío.\n");
                             }
                         } else {
-                            self.logs.push_str("[!] No se pudo leer el portapapeles vía JNI.\n");
+                            self.logs
+                                .push_str("[!] No se pudo leer el portapapeles vía JNI.\n");
                         }
                     }
 
                     // 3. WEBASSEMBLY
                     #[cfg(target_arch = "wasm32")]
                     {
-                        self.logs.push_str("[!] Para pegar en Web, usa Ctrl+V dentro del cuadro de texto.\n");
+                        self.logs.push_str(
+                            "[!] Para pegar en Web, usa Ctrl+V dentro del cuadro de texto.\n",
+                        );
                     }
                 }
 
-                if ui.add_enabled(!self.esta_descargando, egui::Button::new("🎵 MP3")).clicked() {
+                if ui
+                    .add_enabled(!self.esta_descargando, egui::Button::new("🎵 MP3"))
+                    .clicked()
+                {
                     self.descargar(true);
                 }
 
-                if ui.add_enabled(!self.esta_descargando, egui::Button::new("🎬 MP4")).clicked() {
+                if ui
+                    .add_enabled(!self.esta_descargando, egui::Button::new("🎬 MP4"))
+                    .clicked()
+                {
                     self.descargar(false);
                 }
             });
