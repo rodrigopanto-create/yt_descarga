@@ -56,12 +56,15 @@ cd "$WORK/ffmpeg-build"
     --enable-decoder=aac,aac_fixed,mp3,mp3float,opus,vorbis,flac,alac,pcm_s16le,h264,vp9,av1 \
     --enable-parser=aac,mpegaudio,opus,vorbis,flac,h264,vp9,av1 \
     --enable-demuxer=mov,matroska,mp3,ogg,flac,aac,wav \
-    --enable-muxer=mp4,mov,matroska,webm,mp3,ogg,flac,adts,wav,null \
+    --enable-muxer=mp4,mov,ipod,matroska,webm,mp3,ogg,flac,adts,wav,null \
     --enable-protocol=file,pipe \
     --enable-filter=aresample,aformat,anull,atrim,asetpts,concat,sine \
     --enable-bsf=aac_adtstoasc,h264_mp4toannexb,extract_extradata \
     --enable-indev=lavfi
 make -j2
+for feature in CONFIG_LIBMP3LAME_ENCODER CONFIG_MP3_MUXER CONFIG_MP4_MUXER CONFIG_IPOD_MUXER CONFIG_MATROSKA_MUXER; do
+    grep -q "^#define $feature 1$" config_components.h
+done
 for tool in ffmpeg ffprobe; do
     cp "$tool" "$DIST/jniLibs/arm64-v8a/lib$tool.so"
     "$STRIP" --strip-unneeded "$DIST/jniLibs/arm64-v8a/lib$tool.so"
