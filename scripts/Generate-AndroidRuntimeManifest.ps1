@@ -11,7 +11,9 @@ param(
     [ValidatePattern('^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}$')]
     [string] $YtDlpVersion,
 
-    [switch] $IncludeFfmpeg
+    [switch] $IncludeFfmpeg,
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')]
+    [string] $FfmpegVersion = '9.0.2'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,11 +67,16 @@ if ($files.Count -gt 4096) {
 }
 
 $ffmpegHash = $null
+$ffprobeHash = $null
+$mediaVersion = $null
 if ($IncludeFfmpeg) {
     if (-not (Test-Path -LiteralPath $ffmpegExecutable -PathType Leaf)) {
         throw "Se solicitó incluir ffmpeg pero no existe: $ffmpegExecutable"
     }
     $ffmpegHash = (Get-FileHash -LiteralPath $ffmpegExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
+    $probe = Join-Path $repoRoot 'jniLibs\arm64-v8a\libffprobe.so'
+    $ffprobeHash = (Get-FileHash -LiteralPath $probe -Algorithm SHA256).Hash.ToLowerInvariant()
+    $mediaVersion = $FfmpegVersion
 }
 
 $manifest = [ordered]@{
@@ -81,6 +88,8 @@ $manifest = [ordered]@{
     ytdlp_sha256 = (Get-FileHash -LiteralPath $ytDlpZipapp -Algorithm SHA256).Hash.ToLowerInvariant()
     python_files = $files
     ffmpeg_sha256 = $ffmpegHash
+    ffprobe_sha256 = $ffprobeHash
+    ffmpeg_version = $mediaVersion
 }
 
 $json = $manifest | ConvertTo-Json -Depth 8 -Compress

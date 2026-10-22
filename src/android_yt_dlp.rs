@@ -72,6 +72,10 @@ struct RuntimeManifest {
     python_files: Vec<RuntimeFile>,
     #[serde(default)]
     ffmpeg_sha256: Option<String>,
+    #[serde(default)]
+    ffprobe_sha256: Option<String>,
+    #[serde(default)]
+    ffmpeg_version: Option<String>,
 }
 
 #[cfg(any(target_os = "android", test))]
@@ -259,7 +263,7 @@ pub(crate) fn prepare_android_tools() -> Result<AndroidTools, String> {
     install_wrapper(&wrapper, &python, &python_home, &ytdlp_zipapp, &ca_bundle)?;
 
     let ffmpeg = manifest.ffmpeg_sha256.as_deref().and_then(|hash| {
-        match validate_ffmpeg(&native_dir.join("libffmpeg.so"), hash) {
+        match validate_ffmpeg_tools(&native_dir, hash, &manifest) {
             Ok(path) => Some(path),
             Err(error) => {
                 log::warn!("ffmpeg Android no disponible; yt-dlp seguirá funcionando: {error}");
@@ -327,6 +331,13 @@ fn validate_manifest(m: &RuntimeManifest) -> Result<(), String> {
     validate_hash(&m.ytdlp_sha256, "ytdlp_sha256")?;
     if let Some(hash) = &m.ffmpeg_sha256 {
         validate_hash(hash, "ffmpeg_sha256")?;
+    }
+    match (&m.ffmpeg_sha256, &m.ffprobe_sha256, &m.ffmpeg_version) {
+        (None, None, None) => {}
+        (Some(_), Some(hash), Some(version)) if is_version(version, 3) => {
+            validate_hash(hash, "ffprobe_sha256")?;
+        }
+        _ => return Err("FFmpeg requiere hashes de ffmpeg y ffprobe y una versión x.y.z".into()),
     }
     if m.python_files.is_empty() || m.python_files.len() > MAX_RUNTIME_FILES {
         return Err(format!(
@@ -909,7 +920,37 @@ fn run_process(
 }
 
 #[cfg(target_os = "android")]
-fn validate_ffmpeg(path: &Path, expected_hash: &str) -> Result<PathBuf, String> {
+fn validate_ffmpeg_tools(
+    native_dir: &Path,
+    hash: &str,
+    manifest: &RuntimeManifest,
+) -> Result<PathBuf, String> {
+    let version = manifest
+        .ffmpeg_version
+        .as_deref()
+        .ok_or("Falta ffmpeg_version")?;
+    let probe_hash = manifest
+        .ffprobe_sha256
+        .as_deref()
+        .ok_or("Falta ffprobe_sha256")?;
+    let ffmpeg = native_dir.join("libffmpeg.so");
+    validate_media_tool(&ffmpeg, hash, "ffmpeg", version)?;
+    validate_media_tool(
+        &native_dir.join("libffprobe.so"),
+        probe_hash,
+        "ffprobe",
+        version,
+    )?;
+    Ok(ffmpeg)
+}
+
+#[cfg(target_os = "android")]
+fn validate_media_tool(
+    path: &Path,
+    expected_hash: &str,
+    tool: &str,
+    version: &str,
+) -> Result<(), String> {
     if !path.is_file() {
         return Err(format!("No se encontró {}", path.display()));
     }
@@ -922,7 +963,7 @@ fn validate_ffmpeg(path: &Path, expected_hash: &str) -> Result<PathBuf, String> 
         & 0o111
         == 0
     {
-        return Err(format!("ffmpeg no es ejecutable: {}", path.display()));
+        return Err(format!("{tool} no es ejecutable: {}", path.display()));
     }
     let mut command = Command::new(path);
     command
@@ -938,26 +979,25 @@ fn validate_ffmpeg(path: &Path, expected_hash: &str) -> Result<PathBuf, String> 
         .stderr(Stdio::piped());
     let output = crate::runner::instalador::ejecutar_con_timeout(command, PROCESS_TIMEOUT)
         .map_err(|e| e.to_string())?;
+    let expected = format!("{tool} version {version} ");
     if !output.estado.success()
         || !(output
             .stdout
             .lines()
             .next()
-            .unwrap_or("")
-            .starts_with("ffmpeg version")
+            .is_some_and(|line| line.starts_with(&expected))
             || output
                 .stderr
                 .lines()
                 .next()
-                .unwrap_or("")
-                .starts_with("ffmpeg version"))
+                .is_some_and(|line| line.starts_with(&expected)))
     {
         return Err(format!(
-            "ffmpeg no pasó la comprobación -version (estado {})",
+            "{tool} no pasó la comprobación -version {version} (estado {})",
             output.estado
         ));
     }
-    Ok(path.to_path_buf())
+    Ok(())
 }
 
 #[cfg(target_os = "android")]
@@ -1214,7 +1254,24 @@ mod tests {
                 sha256: "c".repeat(64),
             }],
             ffmpeg_sha256: None,
+            ffprobe_sha256: None,
+            ffmpeg_version: None,
         }
+    }
+
+    #[test]
+    fn ffmpeg_requiere_par_verificado_y_version() {
+        let mut manifest = manifest_ok();
+        manifest.ffmpeg_sha256 = Some("d".repeat(64));
+        assert!(validate_manifest(&manifest).is_err());
+        manifest.ffprobe_sha256 = Some("e".repeat(64));
+        manifest.ffmpeg_version = Some("9.0.2".into());
+        assert!(validate_manifest(&manifest).is_ok());
+        manifest.ffprobe_sha256 = Some("incorrecto".into());
+        assert!(validate_manifest(&manifest).is_err());
+        manifest.ffprobe_sha256 = Some("e".repeat(64));
+        manifest.ffmpeg_version = Some("../9".into());
+        assert!(validate_manifest(&manifest).is_err());
     }
 
     #[test]
@@ -1309,6 +1366,12 @@ mod tests {
                 manifest.ytdlp_sha256,
             ),
         ];
+        if let Some(hash) = manifest.ffmpeg_sha256 {
+            paths.push((root.join("jniLibs/arm64-v8a/libffmpeg.so"), hash));
+        }
+        if let Some(hash) = manifest.ffprobe_sha256 {
+            paths.push((root.join("jniLibs/arm64-v8a/libffprobe.so"), hash));
+        }
         paths.extend(
             manifest
                 .python_files

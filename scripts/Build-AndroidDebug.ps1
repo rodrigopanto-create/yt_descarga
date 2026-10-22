@@ -1,4 +1,4 @@
-param()
+param([switch] $IncludeFfmpeg)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -21,6 +21,9 @@ try {
         'libpython3.so', 'libpython3.15.so', 'libcrypto_python.so',
         'libssl_python.so', 'libsqlite3_python.so'
     )
+    if ($IncludeFfmpeg) {
+        $libraries += @('libffmpeg.so', 'libffprobe.so')
+    }
     $nativeDir = Join-Path $repoRoot 'target\android-runtime-libs\arm64-v8a'
     New-Item -ItemType Directory -Force -Path $nativeDir | Out-Null
     foreach ($file in Get-ChildItem -LiteralPath $nativeDir -File) {
@@ -33,7 +36,7 @@ try {
     }
     & (Join-Path $PSScriptRoot 'Generate-AndroidRuntimeManifest.ps1') `
         -RuntimeVersion cpython-3.15.0-android-arm64-v1 `
-        -PythonVersion 3.15.0 -YtDlpVersion 2026.08.19
+        -PythonVersion 3.15.0 -YtDlpVersion 2026.08.19 -IncludeFfmpeg:$IncludeFfmpeg
 
     Push-Location $repoRoot
     try {
@@ -59,6 +62,11 @@ try {
         }
         foreach ($library in $libraries) {
             $expected["lib/arm64-v8a/$library"] = (Get-FileHash -LiteralPath (Join-Path $nativeDir $library) -Algorithm SHA256).Hash
+        }
+        if ($IncludeFfmpeg) {
+            foreach ($license in @('FFmpeg-LGPL-2.1.txt', 'LAME-LGPL.txt')) {
+                $expected["assets/android-runtime/licenses/$license"] = (Get-FileHash -LiteralPath (Join-Path $repoRoot "assets\android-runtime\licenses\$license") -Algorithm SHA256).Hash
+            }
         }
         foreach ($name in $expected.Keys) {
             $entry = $archive.GetEntry($name)

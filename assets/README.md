@@ -21,7 +21,8 @@ por el código es CPython compilado para Bionic/AArch64 más el zipapp oficial d
 - `bin/yt-dlp` es el ejecutable autónomo Linux AArch64 de yt-dlp. Tiene cargador
   `/lib/ld-linux-aarch64.so.1` (glibc); sirve para Linux AArch64 compatible, **no para Android**.
 - `bin/ffmpeg.exe` es el ejecutable Windows x64. `jniLibs/arm64-v8a/libffmpeg.so` era una copia
-  con extensión engañosa de ese PE y se retiró de `jniLibs`.
+  con extensión engañosa de ese PE y se retiró de `jniLibs`. Ahora esa ruta contiene un CLI
+  PIE Bionic compilado desde FFmpeg 9.0.2, junto con `libffprobe.so`.
 - `jniLibs/arm64-v8a/libytdlp.so` era el mismo ejecutable Linux/glibc AArch64, no una biblioteca
   Android ni un CLI Bionic; se quitó de `jniLibs`.
 
@@ -33,9 +34,10 @@ En un dispositivo ARM64 con Android 12 se verificaron el arranque, la extracció
 los imports esenciales, Python `3.15.0` y yt-dlp `2026.08.19`. La prueba inicial con
 `https://example.invalid/` terminó con el error DNS esperado; no era una descarga real.
 
-Las bibliotecas MPV/FFmpeg incluidas no constituyen una distribución completa: faltan
+Las bibliotecas compartidas antiguas de MPV/FFmpeg no constituyen una distribución completa: faltan
 dependencias como `libavdevice.so`, `libavfilter.so`, `libavutil.so`, `libswresample.so`,
 `libswscale.so` y `libc++_shared.so`. No se ha validado su ejecución ni la feature `mpv`.
+Los nuevos CLI ffmpeg/ffprobe no dependen de esas bibliotecas: enlazan sus codecs estáticamente.
 La firma de release se debe configurar fuera del repositorio, sin guardar contraseñas en
 `Cargo.toml`.
 
@@ -46,6 +48,8 @@ Los artefactos CPython proporcionados requieren como mínimo Android API 24.
 
 ```powershell
 .\scripts\Build-AndroidDebug.ps1
+# Con conversion MP3 y mezcla de pistas:
+.\scripts\Build-AndroidDebug.ps1 -IncludeFfmpeg
 ```
 
 El script prepara únicamente las cinco bibliotecas Python requeridas en
@@ -53,6 +57,9 @@ El script prepara únicamente las cinco bibliotecas Python requeridas en
 No incluye MPV/FFmpeg incompletos. Regenera el manifiesto, conserva los directorios Python
 que empiezan por `_` (AAPT los omite por defecto), firma con la clave de depuración local
 y comprueba SHA-256 de todos los assets declarados y las cinco bibliotecas dentro del APK.
+Con `-IncludeFfmpeg` prepara siete binarios y comprueba también las dos licencias empaquetadas
+(2722 comprobaciones para el runtime actual). El staging rechaza bibliotecas ajenas al modo
+elegido: tras compilar con ffmpeg, usar el mismo flag para reconstruir ese APK.
 El APK se encuentra en `target/debug/apk/yt_descarga_lib.apk` (o bajo `CARGO_TARGET_DIR`).
 No se instala ni se desinstala automáticamente ninguna app.
 
@@ -97,6 +104,59 @@ Android 7-9 puede arrancar el runtime, pero guardar en Descargas por esta vía d
 explícito: falta implementar un selector SAF o el flujo de permisos de almacenamiento legado.
 Sin un ffmpeg Android validado no se garantiza conversión a MP3 ni mezcla de pistas separadas.
 
+## FFmpeg Android: origen, integridad y pruebas
+
+La compilación está en `.github/workflows/android-ffmpeg.yml` y
+`scripts/build-android-ffmpeg.sh`. Usa Ubuntu 24.04 y NDK r27c (27.2.12479018), ARM64/API 24:
+
+- FFmpeg 9.0.2: tarball oficial y firma PGP verificada contra la huella fijada
+  `FCF986EA15E6E293A5644F10B4322F04D67658D8`.
+- LAME 3.100: tarball de SourceForge, SHA-256 fijado
+  `ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e`,
+  registrado independientemente en MSYS2 `mingw-w64-lame/PKGBUILD`. No se afirma que este hash
+  equivalga a una firma del autor de LAME.
+- GPL y nonfree desactivados; codecs estáticos, dependencias dinámicas solo del sistema Android.
+  No incluye MPV ni habilita red en FFmpeg: yt-dlp descarga y FFmpeg procesa archivos locales.
+- Build validado: https://github.com/rodrigopanto-create/yt_descarga/actions/runs/39839133795
+  (commit de receta `70d3e636c51b7684142ad57a102d26f466983eea`).
+- El ZIP `android/ffmpeg-distribution.zip` conserva el artefacto completo, fuentes originales,
+  firma, claves, configuración, licencias, bibliotecas estáticas y objetos para reenlazado LGPL.
+  Su SHA-256 es `a3c2146174a60e1f09a2e2b96fb3f8084edb1f9fc8cb29d80113de0eb44eadd3`;
+  se comprobó contra el digest de Actions y luego contra todos los `SHA256SUMS` internos.
+  El ZIP se conserva en Git para no depender de la caducidad de 30 días del artefacto de Actions.
+  Al redistribuir el APK, mantener disponible este material correspondiente y sus licencias.
+- Las licencias se empaquetan en `assets/android-runtime/licenses/`.
+
+El manifiesto declara `ffmpeg_sha256`, `ffprobe_sha256` y `ffmpeg_version`. El resolvedor verifica
+ambos hashes, formato PIE AArch64 con linker Android, permisos y versiones con timeout antes de
+ofrecer la ruta a yt-dlp. Un ffprobe ausente o inválido deshabilita el par, no el runtime Python.
+yt-dlp recibe la ruta `libffmpeg.so` y descubre su hermano `libffprobe.so`.
+
+Pruebas en Android 12 ARM64:
+
+- Conversión real desde la UI: tráiler Sintel a `Download/yt_descarga/trailer.mp3`,
+  1 457 161 bytes (primera compilación). La repetición web con el APK final recibió HTTP 403
+  de Cloudflare; no se desactivó TLS ni se intentó eludir esa restricción.
+- El APK final pasó la prueba offline `scripts/test_android_ffmpeg.py` con el MP4 Sintel
+  previamente descargado: el postprocesador FFmpegExtractAudio de yt-dlp invocó LAME,
+  generó MP3 de 51.925333 s y FFmpeg lo decodificó completo.
+- La misma prueba separó vídeo/audio y ejecutó el merger real de yt-dlp mediante
+  `YoutubeDL.process_ie_result`: MP4 resultante con H.264 de 52.208333 s y AAC de 51.946667 s.
+  Ambos streams deben durar más de 50 s; los archivos temporales se eliminan al finalizar.
+
+Para repetir la prueba offline, copiar el MP4 Sintel y el script a ubicaciones legibles por el
+UID de la app, configurar `PYTHONHOME` al runtime instalado, `LD_LIBRARY_PATH` a `nativeLibraryDir`
+y ejecutar el Python empaquetado:
+
+```text
+libpython3.so -S test_android_ffmpeg.py <nativeLibraryDir> <MP4-Sintel-privado>
+```
+
+La prueba habilita URLs `file://` solo en su instancia local de YoutubeDL, no en la aplicación.
+No demuestra compatibilidad con todos los codecs, HLS, otros dispositivos o todas las variantes
+de YouTube. Este build sirve para MP3 y remux de los contenedores explícitos de la receta,
+no para transcodificación arbitraria de vídeo.
+
 #### Prueba real en Android 12 / ARM64
 
 Se descargó desde la interfaz el tráiler de Sintel servido por W3C:
@@ -135,9 +195,9 @@ Las pruebas Rust son offline; la prueba real en el teléfono sí requiere Intern
 4. Las bibliotecas nativas requeridas por los módulos (`libcrypto_python.so`,
    `libssl_python.so` y `libsqlite3_python.so` para los artefactos actuales), ya presentes en
    `jniLibs/arm64-v8a/`, junto con cualquier otra dependencia de `DT_NEEDED`.
-5. Opcionalmente `jniLibs/arm64-v8a/libffmpeg.so`: también debe ser un ejecutable PIE Bionic,
-   no una biblioteca compartida ordinaria. Se usa solo si `ffmpeg_sha256` está declarado y pasa
-   el hash, la comprobación ELF y `ffmpeg -version`.
+5. Opcionalmente el par `jniLibs/arm64-v8a/libffmpeg.so` y `libffprobe.so`: ejecutables PIE Bionic,
+   no bibliotecas compartidas ordinarias. Requiere ambos hashes y `ffmpeg_version` en el
+   manifiesto; ambos pasan comprobación ELF, permisos y `-version`.
 
 No se usan los artefactos actuales `assets/yt-dlp.bin` ni `jniLibs/arm64-v8a/libytdlp.so` como
 runtime Python: el primero es un ejecutable Linux/glibc y el segundo no demuestra compatibilidad
@@ -163,7 +223,9 @@ hexadecimal de 64 caracteres calculados sobre los bytes exactos empaquetados):
       "sha256": "<SHA256 del archivo>"
     }
   ],
-  "ffmpeg_sha256": null
+  "ffmpeg_sha256": null,
+  "ffprobe_sha256": null,
+  "ffmpeg_version": null
 }
 ```
 
@@ -186,7 +248,7 @@ Con los artefactos ya preparados, genera el JSON y sus hashes desde la raíz del
 El script requiere `jniLibs/arm64-v8a/libpython3.so`, el árbol expandido
 `assets/android-runtime/python/lib/python3.<minor>/` (con `os.py`, `encodings` y módulos `.so` en
 `lib-dynload`) y `assets/android-runtime/yt-dlp.pyz`. Para incluir ffmpeg,
-añadir `-IncludeFfmpeg` después de empaquetar y revisar `libffmpeg.so`.
+añadir `-IncludeFfmpeg -FfmpegVersion 9.0.2` después de empaquetar y revisar ambos CLI.
 
 El APK firmado es la raíz de confianza local del manifiesto y los assets. Los SHA-256 detectan
 cambios accidentales y discrepancias de empaquetado, pero no protegen si el APK/manifiesto se
