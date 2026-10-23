@@ -1,0 +1,53 @@
+name: Rust CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    name: Rust formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
+  windows:
+    name: Windows check and tests
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Preserve asset bytes for manifest checks
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --locked
+      - run: cargo test --locked
+
+  wasm:
+    name: WASM check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo check --locked --target wasm32-unknown-unknown

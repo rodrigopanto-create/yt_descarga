@@ -27,6 +27,19 @@ recursos de interfaz quedan disponibles sin conexión. Las peticiones de API no 
 se reproducen. Para actualizar el contenido cacheado al modificar los recursos web, incrementar
 la versión de caché en `sw.js`.
 
+## Validacion automatica
+
+El workflow [Rust CI](.github/workflows/ci.yml) se ejecuta en los pull requests hacia
+`main`, en cada push a `main` y manualmente desde Actions. Comprueba el formato con
+`cargo fmt --check`, la compilacion y las pruebas en Windows con `--locked`, y la
+compilacion del cliente WASM. El checkout de Windows conserva los bytes de los assets
+para que las pruebas del manifiesto Android verifiquen sus hashes sin conversiones CRLF.
+
+Estos checks no compilan el APK ni sustituyen las pruebas en dispositivo Android.
+La compilacion de FFmpeg y el despliegue de Pages conservan sus workflows separados.
+Para exigir los resultados antes de fusionar, configurar los tres jobs de Rust CI
+como checks requeridos en las reglas de proteccion de `main`.
+
 ## Ejecución local
 
 Instala Rust y, para generar la interfaz web, `wasm-pack`:
