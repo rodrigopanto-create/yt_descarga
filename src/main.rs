@@ -1,4 +1,6 @@
+#[cfg(not(target_arch = "wasm32"))]
 use eframe::egui;
+#[cfg(not(target_arch = "wasm32"))]
 use yt_descarga_lib::YtApp;
 
 #[cfg(not(target_arch = "wasm32"))]

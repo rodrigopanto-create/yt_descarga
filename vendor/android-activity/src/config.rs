@@ -1,6 +1,8 @@
 use core::fmt;
 use std::sync::{Arc, RwLock};
 
+#[cfg(feature = "api-level-30")]
+use ndk::configuration::ScreenRound;
 use ndk::configuration::{
     Configuration, Keyboard, KeysHidden, LayoutDir, NavHidden, Navigation, Orientation, ScreenLong,
     ScreenSize, Touchscreen, UiModeNight, UiModeType,

@@ -2373,7 +2373,8 @@ unsafe extern "system" fn thread_event_target_callback<T: 'static>(
     if userdata_removed {
         drop(userdata);
     } else {
-        Box::into_raw(userdata);
+        // GWL_USERDATA retains ownership until WM_NCDESTROY.
+        let _ = Box::into_raw(userdata);
     }
     result
 }

@@ -17,8 +17,8 @@ fn main() {
         redox: { target_os = "redox" },
 
         // Native displays.
-        x11_platform: { all(feature = "x11", free_unix, not(wasm), not(redox)) },
-        wayland_platform: { all(feature = "wayland", free_unix, not(wasm), not(redox)) },
+        x11_platform: { all(feature = "x11", free_unix, not(wasm_platform), not(redox)) },
+        wayland_platform: { all(feature = "wayland", free_unix, not(wasm_platform), not(redox)) },
         orbital_platform: { redox },
     }
 }

@@ -79,6 +79,7 @@ version = "1.0"
 features = ["parallel"]
 
 [features]
+api-level-30 = ["ndk/api-level-30"]
 default = []
 game-activity = []
 native-activity = []

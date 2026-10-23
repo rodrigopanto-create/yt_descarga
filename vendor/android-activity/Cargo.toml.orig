@@ -18,6 +18,7 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.68.0"
 
 [features]
+api-level-30 = ["ndk/api-level-30"]
 # Note: we don't enable any backend by default since features
 # are generally supposed to be additive, while these backends
 # are actually mutually exclusive.

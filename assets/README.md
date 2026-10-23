@@ -77,6 +77,20 @@ del primer arranque, además de usar el decor de la ventana para mostrar/ocultar
 de las teclas con Android. Se verificaron apertura del teclado, escritura y retroceso en el
 dispositivo. La composición IME compleja no está implementada por NativeActivity 0.5.
 
+La copia local de winit también corrige advertencias con Rust actual sin desactivar
+globalmente los lints: `cfg_aliases` 0.2 registra los alias mediante `rustc-check-cfg`,
+se corrigen nombres de configuración y se modernizan las llamadas obsoletas de Windows
+y Web. Los temporizadores Web conservan sus guardas RAII y Windows conserva la propiedad
+de los datos de ventana hasta `WM_NCDESTROY`. Estos ajustes no actualizan la API de winit
+ni sustituyen los parches del teclado Android.
+
+En android-activity se declara la feature opcional `api-level-30` y se propaga a
+`ndk/api-level-30` para que `screen_round` solo se compile con la API requerida.
+No se activa por defecto ni eleva el SDK mínimo de la app. También se explicita
+el lifetime del iterador de entrada y se elimina el campo interno `redraw_needed`,
+que no se leía ni se actualizaba; las notificaciones de redibujado se mantienen.
+Los imports del ejecutable de escritorio se excluyen de WASM.
+
 ### Red y Descargas públicas
 
 El APK declara `android.permission.INTERNET`. En Android 10 o posterior, yt-dlp escribe en

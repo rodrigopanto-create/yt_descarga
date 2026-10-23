@@ -223,7 +223,6 @@ pub struct NativeActivityState {
     /// Set as soon as the Java main thread notifies us of an
     /// `onDestroyed` callback.
     pub destroyed: bool,
-    pub redraw_needed: bool,
     pub pending_input_queue: *mut ndk_sys::AInputQueue,
     pub pending_window: Option<NativeWindow>,
 }
@@ -370,7 +369,6 @@ impl WaitableNativeActivityState {
                 thread_state: NativeThreadState::Init,
                 app_has_saved_state: false,
                 destroyed: false,
-                redraw_needed: false,
                 pending_input_queue: ptr::null_mut(),
                 pending_window: None,
             }),
