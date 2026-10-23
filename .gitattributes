@@ -1,0 +1,2 @@
+# Runtime checksums cover exact upstream bytes, including original line endings.
+/assets/android-runtime/** -text

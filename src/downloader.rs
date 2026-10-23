@@ -5,46 +5,42 @@ use std::sync::mpsc::Sender;
 // -------------------------------------------------------------
 #[cfg(not(target_arch = "wasm32"))]
 pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
+    use crate::runner::{resolver_binarios, YtDlpCommand};
     use std::io::{BufRead, BufReader};
     use std::process::Stdio;
-    use std::path::PathBuf;
-    use crate::runner::{resolver_binarios, YtDlpCommand};
 
     std::thread::spawn(move || {
         let mandar_log = |msg: &str| {
             let _ = tx.send(msg.to_string());
         };
 
-        mandar_log("[+] Iniciando estrategia de búsqueda de binarios...");
+        mandar_log("[+] Localizando binarios y entorno de ejecución...");
 
-        // 1. Resolver binarios
+        // 1. Resolver binarios (runner.rs se encarga de ubicar el entorno según la plataforma)
         let binarios = match resolver_binarios() {
             Ok(paths) => paths,
             Err(e) => {
-                mandar_log(&format!("[!] Error fatal: {}", e));
+                mandar_log(&format!("[!] Error fatal al cargar binarios: {}", e));
                 let _ = tx.send("__FIN__".to_string());
                 return;
             }
         };
 
         // 2. Ruta de descarga destino
-        let output_dir = if cfg!(target_os = "android") {
-            PathBuf::from("/sdcard/Download")
-        } else {
-            dirs::download_dir().unwrap_or_else(|| PathBuf::from("."))
+        #[cfg(target_os = "android")]
+        let output_dir = match crate::android_downloads::prepare_download() {
+            Ok(path) => path,
+            Err(error) => {
+                mandar_log(&format!("[!] No se pudo preparar Descargas: {error}"));
+                let _ = tx.send("__FIN__".to_string());
+                return;
+            }
         };
+        #[cfg(not(target_os = "android"))]
+        let output_dir = dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         let output_str = output_dir.to_string_lossy().to_string();
 
-        // 3. Auto-actualización oficial
-        mandar_log("[+] Verificando actualizaciones de yt-dlp (-U)...");
-        let mut update_cmd = std::process::Command::new(&binarios.ytdlp);
-        update_cmd.arg("-U");
-        if let Ok(out) = update_cmd.output() {
-            let log_up = String::from_utf8_lossy(&out.stdout);
-            mandar_log(&format!("[yt-dlp -U]: {}", log_up.trim()));
-        }
-
-        // 4. Preparar comando
+        // 3. Preparar comando (Soporte nativo para el python3_pie en Android o runner clásico en Escritorio)
         let runner = YtDlpCommand::new(binarios.ytdlp, binarios.ffmpeg);
         let mut cmd = if solo_audio {
             runner.descargar_audio(&url, &output_str)
@@ -55,9 +51,9 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        mandar_log("[+] Iniciando motor de descarga...");
+        mandar_log(&format!("[DEBUG] Comando a ejecutar: {:?}", cmd));
 
-        // 5. Ejecución con streaming de logs
+        // 4. Ejecución con streaming de logs en tiempo real a la UI
         match cmd.spawn() {
             Ok(mut child) => {
                 if let Some(stdout) = child.stdout.take() {
@@ -76,16 +72,41 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
 
                 match child.wait() {
                     Ok(status) if status.success() => {
-                        mandar_log("--------------------------------------------------");
-                        mandar_log(&format!("¡ÉXITO! El archivo ya está listo en: {}", output_str));
+                        #[cfg(target_os = "android")]
+                        match crate::android_downloads::publish_download(&output_dir) {
+                            Ok(uris) => {
+                                mandar_log("¡ÉXITO! Guardado en Descargas/yt_descarga:");
+                                for uri in uris {
+                                    mandar_log(&uri);
+                                }
+                            }
+                            Err(error) => {
+                                mandar_log(&format!("[!] No se pudo publicar la descarga: {error}"))
+                            }
+                        }
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            mandar_log("--------------------------------------------------");
+                            mandar_log(&format!(
+                                "¡ÉXITO! El archivo está guardado en: {}",
+                                output_str
+                            ));
+                        }
                     }
-                    _ => mandar_log("[!] El proceso de descarga finalizó con errores."),
+                    _ => mandar_log("[!] El proceso finalizó con errores."),
                 }
             }
             Err(e) => mandar_log(&format!("[!] Error al ejecutar proceso: {}", e)),
         }
 
-        // 6. Notificar reactivación a la UI
+        #[cfg(target_os = "android")]
+        if output_dir.exists() {
+            mandar_log(&format!(
+                "[!] Staging conservado para diagnóstico o recuperación: {}",
+                output_dir.display()
+            ));
+        }
+        // 5. Notificar reactivación a la UI
         let _ = tx.send("__FIN__".to_string());
     });
 }
@@ -114,13 +135,11 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
     mandar_log("[+] Enviando solicitud al servidor Actix...");
 
     wasm_bindgen_futures::spawn_local(async move {
-        // Usar el mismo origen que sirve el cliente web.
         let origin = web_sys::window()
             .and_then(|w| w.location().origin().ok())
             .unwrap_or_else(|| "http://127.0.0.1:8082".to_string());
 
         let api_url = format!("{}/api/download", origin);
-
         let client = reqwest::Client::new();
         let body = serde_json::json!({
             "url": url,
@@ -129,7 +148,10 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
 
         match client.post(&api_url).json(&body).send().await {
             Ok(resp) if resp.status().is_success() => {
-                let _ = tx.send("[✓] Servidor inició la descarga en el backend.".to_string());
+                let _ = tx.send(
+                    "[+] Solicitud aceptada por la PC. Consulta el resultado de la descarga en la consola del servidor."
+                        .to_string(),
+                );
             }
             Ok(resp) => {
                 let _ = tx.send(format!("[!] Error del servidor: HTTP {}", resp.status()));

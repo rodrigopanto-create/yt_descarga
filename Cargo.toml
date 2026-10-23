@@ -8,20 +8,27 @@ name = "yt_descarga_lib"
 crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
-[[bin]]
-name = "yt_descarga"
-path = "src/main.rs"
+#[[bin]]
+#name = "yt_descarga"
+#path = "src/main.rs"
 
 [features]
 default = ["lite"]
 full-binaries = []
 lite = []
+mpv = ["dep:libmpv-sys"]
+
+[patch.crates-io]
+android-activity = { path = "vendor/android-activity" }
+winit = { path = "vendor/winit" }
 
 [dependencies]
 dirs = "5.0"
 futures-util = "0.3"
+log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+libmpv-sys = { version = "3.0.1", optional = true }
 
 # -----------------------------------------------------------------
 # DEPENDENCIAS SOLO PARA ARQUITECTURAS NO-WASM (Windows, Linux, Android)
@@ -33,6 +40,9 @@ actix-files = "0.7.0"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 ureq = { version = "2.9", features = ["json"] }
 which = "6.0"
+# SHA-256 para verificar binarios descargados. Ya se compila como dependencia de rustls (reqwest),
+# por lo que no añade coste de compilación ni tamaño en escritorio ni Android.
+ring = "0.17"
 
 # -----------------------------------------------------------------
 # DEPENDENCIAS EXCLUSIVAS PARA WEBASSEMBLY (Navegador)
@@ -56,7 +66,33 @@ winit = "0.29"
 [target.'cfg(target_os = "android")'.dependencies]
 eframe = { version = "0.27.2", default-features = false, features = ["default_fonts", "glow", "android-native-activity"] }
 winit = { version = "0.29", features = ["android-native-activity"] }
-android-activity = { version = "0.5", features = ["native-activity"] }
+ndk = "0.8"
 jni = "0.21"
 ndk-context = "0.1"
 ndk-sys = "0.5"
+android_logger = "0.13"
+android-activity = { version = "0.5", features = ["native-activity"] }
+log = "0.4"
+libc = "0.2"
+
+[package.metadata.android]
+package = "com.rodrigo.yt_descarga"
+build_targets = ["aarch64-linux-android"]
+
+# 1. Copia assets generales (si los usas en desktop)
+assets = "./assets"
+
+# 2. Librerías nativas adicionales cargadas en tiempo de ejecución
+runtime_libs = "target/android-runtime-libs"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[package.metadata.android.sdk]
+target_sdk_version = 33
+min_sdk_version = 24
+
+[package.metadata.android.application]
+theme = "@android:style/Theme.DeviceDefault.NoActionBar"
+# Sin esto, algunos dispositivos no extraen libytdlp.so/libffmpeg.so a disco y el "exec" falla con "No such file or directory".
+extract_native_libs = true

@@ -27,6 +27,22 @@ recursos de interfaz quedan disponibles sin conexión. Las peticiones de API no 
 se reproducen. Para actualizar el contenido cacheado al modificar los recursos web, incrementar
 la versión de caché en `sw.js`.
 
+## Validacion automatica
+
+El workflow [Rust CI](.github/workflows/ci.yml) se ejecuta en los pull requests hacia
+`main`, en cada push a `main` y manualmente desde Actions. Comprueba el formato con
+`cargo fmt --check`, la compilacion y las pruebas en Windows con `--locked`, y la
+compilacion del cliente WASM. El checkout de Windows conserva los bytes de los assets
+para que las pruebas del manifiesto Android verifiquen sus hashes sin conversiones CRLF.
+`.gitattributes` desactiva la normalizacion de texto del runtime Android: sus archivos
+deben conservar exactamente los bytes cubiertos por el manifiesto, incluidos sus
+finales de linea originales.
+
+Estos checks no compilan el APK ni sustituyen las pruebas en dispositivo Android.
+La compilacion de FFmpeg y el despliegue de Pages conservan sus workflows separados.
+Para exigir los resultados antes de fusionar, configurar los tres jobs de Rust CI
+como checks requeridos en las reglas de proteccion de `main`.
+
 ## Ejecución local
 
 Instala Rust y, para generar la interfaz web, `wasm-pack`:
@@ -48,6 +64,9 @@ La instalación PWA requiere localhost o HTTPS; una dirección LAN HTTP no ofrec
   usan extensión `.exe`.
 - Android necesita su propia integración y binarios compatibles con Bionic; los ejecutables
   Linux convencionales no deben asumirse compatibles.
+  El código y los artefactos disponibles, junto con las limitaciones de empaquetado y ejecución
+  pendientes, se describen en [assets/README.md](assets/README.md). Incluir los binarios no
+  significa que el runtime Android ya esté operativo; falta validar la integración en dispositivo.
 
 ## Estructura
 

@@ -38,9 +38,16 @@ Contiene la lógica de construcción de comandos y resolución de ejecutables.
 
 Resuelve la ruta de `yt-dlp` y, si existe, de `ffmpeg`:
 
-- escritorio: `bin/yt-dlp` o `bin/yt-dlp.exe`
-- Android: `nativeLibraryDir/libytdlp.so`
+- escritorio: `PATH`, directorio gestionado por la app y `bin/` local (los candidatos se validan antes de usarlos)
+- Android: `android_yt_dlp::prepare_android_tools`, que valida CPython PIE Bionic, el zipapp y los hashes del manifiesto; genera el wrapper en `files/bin/yt-dlp`
 - WASM: usa un valor ficticio porque no se ejecuta dentro del navegador
+
+#### `android_yt_dlp.rs`
+
+Prepara el runtime CPython + yt-dlp zipapp descrito en `assets/README.md`. El ejecutable Python
+debe venir en `jniLibs/arm64-v8a/libpython3.so`; el intérprete y ffmpeg se validan como ELF PIE
+AArch64 con cargador Bionic antes de ejecutarlos. El zipapp y los archivos Python se extraen por
+streaming, se verifican mediante SHA-256 y se activan en una carpeta versionada.
 
 #### `ytdlp.rs`
 
@@ -72,12 +79,13 @@ Es el ejecutable de escritorio y también el backend local:
 - expone la ruta `/api/status`
 - expone la ruta `/api/download`
 - sirve la interfaz estática desde `./web` o `index.html`
+- sirve `manifest.webmanifest`, `sw.js` y el icono PWA desde la raíz del proyecto
 
 ## Flujo de descarga
 
 1. El usuario introduce una URL y pulsa MP3 o MP4.
 2. La UI llama a `ejecutar_descarga` desde `downloader.rs`.
-3. El módulo `runner` resuelve la ruta de `yt-dlp` y `ffmpeg`.
+3. El módulo `runner` resuelve y valida `yt-dlp` y `ffmpeg` (Android prepara el wrapper Python).
 4. Se construye el comando con `YtDlpCommand`.
 5. El proceso se lanza en hilo separado.
 6. Los logs se transmiten al cliente mediante `Sender<String>`.
