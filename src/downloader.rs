@@ -148,7 +148,10 @@ pub fn ejecutar_descarga(url: String, solo_audio: bool, tx: Sender<String>) {
 
         match client.post(&api_url).json(&body).send().await {
             Ok(resp) if resp.status().is_success() => {
-                let _ = tx.send("[✓] ¡Descarga completada con éxito en la PC!".to_string());
+                let _ = tx.send(
+                    "[+] Solicitud aceptada por la PC. Consulta el resultado de la descarga en la consola del servidor."
+                        .to_string(),
+                );
             }
             Ok(resp) => {
                 let _ = tx.send(format!("[!] Error del servidor: HTTP {}", resp.status()));
