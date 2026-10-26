@@ -2,61 +2,60 @@
 name = "yt_descarga"
 version = "0.1.0"
 edition = "2021"
+autobins = false
 
 [lib]
 name = "yt_descarga_lib"
 crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
-[[bin]]
-name = "yt_descarga"
-path = "src/main.rs"
-
-[features]
-default = ["lite"]
-full-binaries = []
-lite = []
-
 [dependencies]
-dirs = "5.0"
-futures-util = "0.3"
+log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-# -----------------------------------------------------------------
-# DEPENDENCIAS SOLO PARA ARQUITECTURAS NO-WASM (Windows, Linux, Android)
-# -----------------------------------------------------------------
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1", features = ["full"] }
-actix-web = "4"
-actix-files = "0.7.0"
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-ureq = { version = "2.9", features = ["json"] }
-which = "6.0"
-
-# -----------------------------------------------------------------
-# DEPENDENCIAS EXCLUSIVAS PARA WEBASSEMBLY (Navegador)
-# -----------------------------------------------------------------
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-eframe = "0.27.2"
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-console_error_panic_hook = "0.1"
-web-sys = { version = "0.3", features = ["Request", "RequestInit", "RequestMode", "Response", "Headers", "Window"] }
-reqwest = { version = "0.11", features = ["json"] }
-serde_json = "1.0"
-
-# -----------------------------------------------------------------
-# CONFIGURACIÓN ORIGINAL E INTACTA PARA ESCRITORIO Y ANDROID
-# -----------------------------------------------------------------
-[target.'cfg(not(target_os = "android"))'.dependencies]
-eframe = { version = "0.27.2", default-features = false, features = ["default_fonts", "glow"] }
-winit = "0.29"
+ring = "0.17"
 
 [target.'cfg(target_os = "android")'.dependencies]
 eframe = { version = "0.27.2", default-features = false, features = ["default_fonts", "glow", "android-native-activity"] }
 winit = { version = "0.29", features = ["android-native-activity"] }
-android-activity = { version = "0.5", features = ["native-activity"] }
 jni = "0.21"
 ndk-context = "0.1"
-ndk-sys = "0.5"
+android_logger = "0.13"
+android-activity = { version = "0.5", features = ["native-activity"] }
+libmpv-sys = { version = "3.0.1", optional = true }
+
+[features]
+mpv = ["dep:libmpv-sys"]
+
+[package.metadata.android]
+package = "com.rodrigo.yt_descarga"
+build_targets = ["aarch64-linux-android"]
+
+# Assets empaquetados en el APK.
+assets = "./assets"
+
+# Iconos y recursos Android (icono adaptable y PNG para Android < 8).
+resources = "res"
+
+# Bibliotecas nativas Android empaquetadas con el APK.
+runtime_libs = "target/android-runtime-libs"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_NETWORK_STATE"
+
+[package.metadata.android.sdk]
+target_sdk_version = 33
+min_sdk_version = 21
+
+[package.metadata.android.application.activity]
+label = "yt_descarga"
+
+[package.metadata.android.application]
+label = "yt_descarga"
+icon = "@mipmap/ic_launcher"
+theme = "@android:style/Theme.DeviceDefault.NoActionBar"
+# Sin esto, algunos dispositivos no extraen libytdlp.so/libffmpeg.so a disco y el "exec" falla con "No such file or directory".
+extract_native_libs = true

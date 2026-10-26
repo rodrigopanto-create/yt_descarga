@@ -1,0 +1,5 @@
+# Preserve runtime bytes: manifest SHA-256 values must survive Windows checkouts.
+assets/android-runtime/** -text
+assets/android-licenses/** -text
+*.so binary
+*.png binary

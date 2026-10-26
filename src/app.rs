@@ -1,9 +1,8 @@
+use crate::android_yt_dlp::content_rect_top_px;
+use crate::downloader::ejecutar_descarga;
+use crate::platform::obtener_portapapeles_jni;
 use eframe::egui;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use crate::downloader::ejecutar_descarga;
-
-#[cfg(target_os = "android")]
-use crate::platform::obtener_portapapeles_jni;
 
 pub struct YtApp {
     url: String,
@@ -38,30 +37,14 @@ impl YtApp {
         }
 
         let tipo = if es_mp3 { "MP3" } else { "MP4" };
-        self.logs.push_str(&format!("[+] Solicitando archivo {}...\n", tipo));
+        self.logs
+            .push_str(&format!("[+] Solicitando archivo {}...\n", tipo));
         self.esta_descargando = true;
 
         let url = self.url.trim().to_string();
         let tx = self.tx.clone();
 
-        // -------------------------------------------------------------
-        // RAMA PARA WEBASSEMBLY (NAVEGADOR)
-        // -------------------------------------------------------------
-        #[cfg(target_arch = "wasm32")]
-        {
-            wasm_bindgen_futures::spawn_local(async move {
-                // En la web delegamos la petición de forma asíncrona
-                ejecutar_descarga(url, es_mp3, tx);
-            });
-        }
-
-        // -------------------------------------------------------------
-        // RAMA PARA ESCRITORIO Y ANDROID (HILOS NATIVOS)
-        // -------------------------------------------------------------
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            ejecutar_descarga(url, es_mp3, tx);
-        }
+        ejecutar_descarga(url, es_mp3, tx);
     }
 }
 
@@ -81,6 +64,11 @@ impl eframe::App for YtApp {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            let top_px = content_rect_top_px() as f32;
+            let top_pts = top_px / ctx.pixels_per_point();
+            let inset = top_pts.max(28.0);
+            ui.add_space(inset + 8.0);
+
             ui.heading("YouTube Downloader Portable");
             ui.add_space(10.0);
 
@@ -92,32 +80,35 @@ impl eframe::App for YtApp {
             ui.add_space(5.0);
 
             ui.horizontal(|ui| {
-                if ui.add_enabled(!self.esta_descargando, egui::Button::new("📋 PEGAR")).clicked() {
-                    #[cfg(target_os = "android")]
-                    {
-                        if let Some(txt) = obtener_portapapeles_jni() {
-                            if !txt.is_empty() {
-                                self.url = txt;
-                                self.logs.push_str("[✓] Enlace pegado desde el portapapeles.\n");
-                            } else {
-                                self.logs.push_str("[!] El portapapeles está vacío.\n");
-                            }
+                if ui
+                    .add_enabled(!self.esta_descargando, egui::Button::new("📋 PEGAR"))
+                    .clicked()
+                {
+                    if let Some(txt) = obtener_portapapeles_jni() {
+                        if !txt.is_empty() {
+                            self.url = txt;
+                            self.logs
+                                .push_str("[✓] Enlace pegado desde el portapapeles.\n");
                         } else {
-                            self.logs.push_str("[!] No se pudo leer el portapapeles vía JNI.\n");
+                            self.logs.push_str("[!] El portapapeles está vacío.\n");
                         }
-                    }
-
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        self.logs.push_str("[!] Portapapeles no soportado en web por seguridad del navegador.\n");
+                    } else {
+                        self.logs
+                            .push_str("[!] No se pudo leer el portapapeles vía JNI.\n");
                     }
                 }
 
-                if ui.add_enabled(!self.esta_descargando, egui::Button::new("🎵 MP3")).clicked() {
+                if ui
+                    .add_enabled(!self.esta_descargando, egui::Button::new("🎵 MP3"))
+                    .clicked()
+                {
                     self.descargar(true);
                 }
 
-                if ui.add_enabled(!self.esta_descargando, egui::Button::new("🎬 MP4")).clicked() {
+                if ui
+                    .add_enabled(!self.esta_descargando, egui::Button::new("🎬 MP4"))
+                    .clicked()
+                {
                     self.descargar(false);
                 }
             });
@@ -128,7 +119,7 @@ impl eframe::App for YtApp {
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.add(
-                    egui::TextEdit::multiline(&mut self.logs.as_str())
+                    egui::TextEdit::multiline(&mut self.logs) // Pasado directamente como &mut String
                         .font(egui::TextStyle::Monospace)
                         .desired_rows(15)
                         .lock_focus(true),
